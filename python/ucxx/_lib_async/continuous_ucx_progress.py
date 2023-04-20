@@ -68,5 +68,6 @@ class PollingMode(ProgressTask):
             if worker is None:
                 return
             worker.progress()
+            worker.run_request_notifier()
             # Give other co-routines a chance to run.
             await asyncio.sleep(0)

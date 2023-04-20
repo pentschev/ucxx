@@ -11,6 +11,8 @@ namespace ucxx {
 
 void WorkerProgressThread::progressUntilSync(
   std::function<bool(void)> progressFunction,
+  std::function<void(void)> populatePythonFuturesFunction,
+  std::function<void(void)> requestNotifierFunction,
   const bool& stop,
   ProgressThreadStartCallback startCallback,
   ProgressThreadStartCallbackArg startCallbackArg,
@@ -19,15 +21,21 @@ void WorkerProgressThread::progressUntilSync(
   if (startCallback) startCallback(startCallbackArg);
 
   while (!stop) {
+    populatePythonFuturesFunction();
+
     if (delayedSubmissionCollection != nullptr) delayedSubmissionCollection->process();
 
     progressFunction();
+
+    requestNotifierFunction();
   }
 }
 
 WorkerProgressThread::WorkerProgressThread(
   const bool pollingMode,
   std::function<bool(void)> progressFunction,
+  std::function<void(void)> populatePythonFuturesFunction,
+  std::function<void(void)> requestNotifierFunction,
   std::function<void(void)> signalWorkerFunction,
   ProgressThreadStartCallback startCallback,
   ProgressThreadStartCallbackArg startCallbackArg,
@@ -39,6 +47,8 @@ WorkerProgressThread::WorkerProgressThread(
 {
   _thread = std::thread(WorkerProgressThread::progressUntilSync,
                         progressFunction,
+                        populatePythonFuturesFunction,
+                        requestNotifierFunction,
                         std::ref(_stop),
                         _startCallback,
                         _startCallbackArg,

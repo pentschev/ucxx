@@ -160,5 +160,9 @@ async def am_recv(ep):
 async def wait_listener_client_handlers(listener):
     pass
     while listener.active_clients > 0:
-        await asyncio.sleep(0)
-        ucxx.progress()
+        await asyncio.sleep(0.01)
+        if not isinstance(
+            ucxx.core._get_ctx().progress_tasks[0],
+            ucxx._lib_async.continuous_ucx_progress.ThreadMode,
+        ):
+            ucxx.progress()

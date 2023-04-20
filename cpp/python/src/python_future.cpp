@@ -17,11 +17,15 @@ namespace ucxx {
 
 namespace python {
 
-Future::Future(std::shared_ptr<::ucxx::Notifier> notifier) : ::ucxx::Future(notifier) {}
-
-std::shared_ptr<::ucxx::Future> createFuture(std::shared_ptr<::ucxx::Notifier> notifier)
+Future::Future(PyObject* asyncioEventLoop, std::shared_ptr<Notifier> notifier)
+  : ::ucxx::Future(notifier), _asyncioEventLoop(asyncioEventLoop)
 {
-  return std::shared_ptr<::ucxx::Future>(new ::ucxx::python::Future(notifier));
+}
+
+std::shared_ptr<::ucxx::Future> createFuture(PyObject* asyncioEventLoop,
+                                             std::shared_ptr<::ucxx::Notifier> notifier)
+{
+  return std::shared_ptr<::ucxx::Future>(new ::ucxx::python::Future(asyncioEventLoop, notifier));
 }
 
 Future::~Future()
@@ -40,10 +44,12 @@ void Future::set(ucs_status_t status)
   ucxx_trace_req(
     "Future::set() this: %p, _handle: %p, status: %s", this, _handle, ucs_status_string(status));
   if (status == UCS_OK)
-    future_set_result(_handle, Py_True);
+    future_set_result(_asyncioEventLoop, _handle, Py_True);
   else
-    future_set_exception(
-      _handle, get_python_exception_from_ucs_status(status), ucs_status_string(status));
+    future_set_exception(_asyncioEventLoop,
+                         _handle,
+                         get_python_exception_from_ucs_status(status),
+                         ucs_status_string(status));
 }
 
 void Future::notify(ucs_status_t status)

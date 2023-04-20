@@ -97,7 +97,8 @@ class UCXPyAsyncServer(BaseServer):
         while not lf.closed():
             await asyncio.sleep(0.5)
 
-        ucxx.stop_notifier_thread()
+        # ucxx.stop_notifier_thread()
+        ucxx.reset()
 
 
 class UCXPyAsyncClient(BaseClient):
@@ -174,7 +175,10 @@ class UCXPyAsyncClient(BaseClient):
             xp.cuda.profiler.stop()
         self.queue.put(times)
 
-        ucxx.stop_notifier_thread()
+        # await ep.close()
+
+        # ucxx.stop_notifier_thread()
+        ucxx.reset()
 
     def print_backend_specific_config(self):
         print_key_value(

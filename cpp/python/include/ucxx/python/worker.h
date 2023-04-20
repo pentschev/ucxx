@@ -22,6 +22,8 @@ namespace python {
 
 class Worker : public ::ucxx::Worker {
  private:
+  PyObject* _asyncioEventLoop{nullptr};  ///< The asyncio event loop Python futures belong to.
+
   /**
    * @brief Private constructor of `ucxx::python::Worker`.
    *
@@ -36,10 +38,15 @@ class Worker : public ::ucxx::Worker {
    *                                    progress thread.
    * @param[in] enableFuture if `true`, notifies the Python future associated with each
    *                         `ucxx::Request`.
+   * @param[in] asyncioEventLoop if `enablePythonFuture == true`, this must point to
+   *                             a valid Python object containing the event loop that
+   *                             the application is using, to which Python futures
+   *                             will belong to.
    */
   Worker(std::shared_ptr<Context> context,
          const bool enableDelayedSubmission = false,
-         const bool enableFuture            = false);
+         const bool enableFuture            = false,
+         void* asyncioEventLoop             = nullptr);
 
  public:
   Worker()              = delete;
@@ -67,11 +74,16 @@ class Worker : public ::ucxx::Worker {
    *                                    progress thread.
    * @param[in] enableFuture if `true`, notifies the Python future associated with each
    *                         `ucxx::Request`.
+   * @param[in] asyncioEventLoop if `enablePythonFuture == true`, this must point to
+   *                             a valid Python object containing the event loop that
+   *                             the application is using, to which Python futures
+   *                             will belong to.
    * @returns The `shared_ptr<ucxx::python::Worker>` object
    */
   friend std::shared_ptr<::ucxx::Worker> createWorker(std::shared_ptr<Context> context,
                                                       const bool enableDelayedSubmission,
-                                                      const bool enableFuture);
+                                                      const bool enableFuture,
+                                                      void* asyncioEventLoop);
 
   /**
    * @brief Populate the Python future pool.

@@ -20,3 +20,5 @@
 #include <ucxx/request_tag_multi.h>
 #include <ucxx/typedefs.h>
 #include <ucxx/worker.h>
+
+#include <ucxx/python_notifier_app.h>

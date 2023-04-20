@@ -49,6 +49,8 @@ class WorkerProgressThread {
    */
   static void progressUntilSync(
     std::function<bool(void)> progressFunction,
+    std::function<void(void)> populatePythonFuturesFunction,
+    std::function<void(void)> requestNotifierFunction,
     const bool& stop,
     ProgressThreadStartCallback startCallback,
     ProgressThreadStartCallbackArg startCallbackArg,
@@ -85,6 +87,8 @@ class WorkerProgressThread {
    */
   WorkerProgressThread(const bool pollingMode,
                        std::function<bool(void)> progressFunction,
+                       std::function<void(void)> populatePythonFuturesFunction,
+                       std::function<void(void)> requestNotifierFunction,
                        std::function<void(void)> signalWorkerFunction,
                        ProgressThreadStartCallback startCallback,
                        ProgressThreadStartCallbackArg startCallbackArg,

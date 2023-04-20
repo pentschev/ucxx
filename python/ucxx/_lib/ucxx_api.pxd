@@ -140,7 +140,8 @@ cdef extern from "<ucxx/python/api.h>" namespace "ucxx::python" nogil:
     shared_ptr[Worker] createPythonWorker "ucxx::python::createWorker"(
         shared_ptr[Context] context,
         bint enableDelayedSubmission,
-        bint enablePythonFuture
+        bint enablePythonFuture,
+        void* asyncioEventLoop,
     ) except +raise_py_error
 
 
@@ -198,6 +199,7 @@ cdef extern from "<ucxx/api.h>" namespace "ucxx" nogil:
     cdef cppclass Context(Component):
         shared_ptr[Worker] createWorker(
             bint enableDelayedSubmission,
+            PyObject* asyncioEventLoop
         ) except +raise_py_error
         ConfigMap getConfig() except +raise_py_error
         ucp_context_h getHandle()
@@ -310,6 +312,12 @@ cdef extern from "<ucxx/request_tag_multi.h>" namespace "ucxx" nogil:
         cpp_bool isCompleted()
         ucs_status_t getStatus()
         void checkError() except +raise_py_error
+
+
+cdef extern from "<ucxx/python_notifier_app.h>" namespace "python_notifier" nogil:
+    cdef cppclass Application:
+        Application(PyObject* asyncio_event_loop)
+        PyObject* submit(double duration, long long id)
         void* getFuture() except +raise_py_error
 
 

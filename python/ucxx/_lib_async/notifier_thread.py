@@ -29,7 +29,6 @@ async def _notifier_coroutine(worker):
 
 def _notifierThread(event_loop, worker, q):
     logger.debug("Starting Notifier Thread")
-    asyncio.set_event_loop(event_loop)
     shutdown = False
 
     while True:

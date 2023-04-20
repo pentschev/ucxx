@@ -46,6 +46,7 @@ class ApplicationContext:
         enable_python_future = ApplicationContext._check_enable_python_future(
             enable_python_future, self.progress_mode
         )
+        loop = get_event_loop() if enable_python_future else None
 
         # For now, a application context only has one worker
         self.context = ucx_api.UCXContext(config_dict)
@@ -53,9 +54,10 @@ class ApplicationContext:
             self.context,
             enable_delayed_submission=enable_delayed_submission,
             enable_python_future=enable_python_future,
+            asyncio_event_loop=loop,
         )
 
-        self.start_notifier_thread()
+        # self.start_notifier_thread()
 
         weakref.finalize(self, self.progress_tasks.clear)
 
@@ -342,7 +344,7 @@ class ApplicationContext:
             Python 3.10+) is used.
         """
         loop = event_loop if event_loop is not None else get_event_loop()
-        if loop in self.progress_tasks:
+        if len(self.progress_tasks) > 0:
             return  # Progress has already been guaranteed for the current event loop
 
         if self.progress_mode == "thread":

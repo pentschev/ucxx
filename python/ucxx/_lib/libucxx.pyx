@@ -431,14 +431,17 @@ cdef class UCXWorker():
             UCXContext context,
             enable_delayed_submission=False,
             enable_python_future=False,
+            asyncio_event_loop=None,
     ):
         cdef bint ucxx_enable_delayed_submission = enable_delayed_submission
         cdef bint ucxx_enable_python_future = enable_python_future
+        cdef PyObject* ucxx_asyncio_event_loop = <PyObject*>asyncio_event_loop
         with nogil:
             self._worker = createPythonWorker(
                 context._context,
                 ucxx_enable_delayed_submission,
                 ucxx_enable_python_future,
+                ucxx_asyncio_event_loop,
             )
             self._enable_python_future = self._worker.get().isFutureEnabled()
 
@@ -1189,3 +1192,23 @@ def get_ucx_version():
     cdef unsigned int a, b, c
     ucp_get_version(&a, &b, &c)
     return (a, b, c)
+
+
+cdef class PythonNotifierApplication():
+    cdef unique_ptr[Application] _application
+
+    def __init__(self, asyncio_event_loop):
+        cdef PyObject* asyncio_event_loop_ptr = <PyObject*>asyncio_event_loop
+
+        with nogil:
+            self._application = move(make_unique[Application](asyncio_event_loop_ptr))
+
+    def submit(self, duration=1.0, id=0):
+        cdef double cpp_duration = duration
+        cdef long long cpp_id = id
+        cdef PyObject* future_ptr
+
+        with nogil:
+            future_ptr = self._application.get().submit(cpp_duration, cpp_id)
+
+        return <object>future_ptr

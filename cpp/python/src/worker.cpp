@@ -24,7 +24,16 @@ Worker::Worker(std::shared_ptr<Context> context,
                const bool enableFuture)
   : ::ucxx::Worker(context, enableDelayedSubmission)
 {
-  if (_enableFuture) _notifier = createNotifier();
+  if (_enableFuture) {
+    if (_asyncioEventLoop == nullptr) {
+      ucxx_warn(
+        "enablePythonFuture set to true, but no valid asyncio event loop specified, "
+        "Python futures will be disabled.");
+      _enablePythonFuture = false;
+    } else {
+      _notifier = createNotifier();
+    }
+  }
 }
 
 std::shared_ptr<::ucxx::Worker> createWorker(std::shared_ptr<Context> context,
