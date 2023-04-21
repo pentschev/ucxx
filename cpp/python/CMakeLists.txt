@@ -19,6 +19,7 @@ add_library(
   src/notifier.cpp
   src/python_future.cpp
   src/worker.cpp
+  src/worker_progress_thread.cpp
 )
 
 set_target_properties(

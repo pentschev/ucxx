@@ -123,6 +123,27 @@ void Worker::stopRequestNotifierThread()
   }
 }
 
+void Worker::startProgressThread(const bool pollingMode)
+{
+  if (_progressThread) {
+    ucxx_warn("Worker progress thread already running");
+    return;
+  }
+
+  if (!pollingMode) initBlockingProgressMode();
+  auto progressFunction = pollingMode ? std::bind(&Worker::progress, this)
+                                      : std::bind(&Worker::progressWorkerEvent, this);
+  auto signalWorkerFunction =
+    pollingMode ? std::function<void()>{[]() {}} : std::bind(&Worker::signal, this);
+
+  _progressThread = std::make_shared<WorkerProgressThread>(pollingMode,
+                                                           progressFunction,
+                                                           signalWorkerFunction,
+                                                           _progressThreadStartCallback,
+                                                           _progressThreadStartCallbackArg,
+                                                           _delayedSubmissionCollection);
+}
+
 }  // namespace python
 
 }  // namespace ucxx

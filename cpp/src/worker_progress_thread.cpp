@@ -10,9 +10,7 @@
 namespace ucxx {
 
 void WorkerProgressThread::progressUntilSync(
-  std::function<bool(void)> progressFunction,
-  std::function<void(void)> populatePythonFuturesFunction,
-  std::function<void(void)> requestNotifierFunction,
+  ProgressWorkerFunction progressFunction,
   const bool& stop,
   ProgressThreadStartCallback startCallback,
   ProgressThreadStartCallbackArg startCallbackArg,
@@ -21,38 +19,37 @@ void WorkerProgressThread::progressUntilSync(
   if (startCallback) startCallback(startCallbackArg);
 
   while (!stop) {
-    populatePythonFuturesFunction();
-
     if (delayedSubmissionCollection != nullptr) delayedSubmissionCollection->process();
 
     progressFunction();
-
-    requestNotifierFunction();
   }
+}
+
+void WorkerProgressThread::launchThread()
+{
+  _thread = std::thread(WorkerProgressThread::progressUntilSync,
+                        _progressFunction,
+                        std::ref(_stop),
+                        _startCallback,
+                        _startCallbackArg,
+                        _delayedSubmissionCollection);
 }
 
 WorkerProgressThread::WorkerProgressThread(
   const bool pollingMode,
-  std::function<bool(void)> progressFunction,
-  std::function<void(void)> populatePythonFuturesFunction,
-  std::function<void(void)> requestNotifierFunction,
-  std::function<void(void)> signalWorkerFunction,
+  ProgressWorkerFunction progressFunction,
+  SignalWorkerFunction signalWorkerFunction,
   ProgressThreadStartCallback startCallback,
   ProgressThreadStartCallbackArg startCallbackArg,
   std::shared_ptr<DelayedSubmissionCollection> delayedSubmissionCollection)
   : _pollingMode(pollingMode),
+    _progressFunction(progressFunction),
     _signalWorkerFunction(signalWorkerFunction),
     _startCallback(startCallback),
-    _startCallbackArg(startCallbackArg)
+    _startCallbackArg(startCallbackArg),
+    _delayedSubmissionCollection(delayedSubmissionCollection)
 {
-  _thread = std::thread(WorkerProgressThread::progressUntilSync,
-                        progressFunction,
-                        populatePythonFuturesFunction,
-                        requestNotifierFunction,
-                        std::ref(_stop),
-                        _startCallback,
-                        _startCallbackArg,
-                        delayedSubmissionCollection);
+  launchThread();
 }
 
 WorkerProgressThread::~WorkerProgressThread()

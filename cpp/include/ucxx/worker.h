@@ -445,7 +445,7 @@ class Worker : public Component {
    * @param[in] pollingMode use polling mode if `true`, or blocking mode if `false`.
    * @param[in] callbackArg argument to be passed to the callback function
    */
-  void startProgressThread(const bool pollingMode = false);
+  virtual void startProgressThread(const bool pollingMode = false);
 
   /**
    * @brief Stop the progress thread.

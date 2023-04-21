@@ -13,15 +13,17 @@
 
 namespace ucxx {
 
+typedef std::function<bool(void)> ProgressWorkerFunction;
 typedef std::function<void(void)> SignalWorkerFunction;
 typedef std::function<void(void*)> ProgressThreadStartCallback;
 typedef void* ProgressThreadStartCallbackArg;
 
 class WorkerProgressThread {
- private:
+ protected:
   std::thread _thread{};     ///< Thread object
   bool _stop{false};         ///< Signal to stop on next iteration
   bool _pollingMode{false};  ///< Whether thread will use polling mode to progress
+  ProgressWorkerFunction _progressFunction{nullptr};  ///< Function to progress the worker
   SignalWorkerFunction _signalWorkerFunction{
     nullptr};  ///< Function signaling worker to wake the progress event (when _pollingMode is
                ///< `false`)
@@ -29,7 +31,12 @@ class WorkerProgressThread {
     nullptr};  ///< Callback to execute at start of the progress thread
   ProgressThreadStartCallbackArg _startCallbackArg{
     nullptr};  ///< Argument to pass to start callback
+  std::shared_ptr<DelayedSubmissionCollection> _delayedSubmissionCollection{
+    nullptr};  ///< Collection of enqueued delayed submissions
 
+  virtual void launchThread();
+
+ private:
   /**
    * @brief The function executed in the new thread.
    *
@@ -48,9 +55,7 @@ class WorkerProgressThread {
    *                                        processed during progress.
    */
   static void progressUntilSync(
-    std::function<bool(void)> progressFunction,
-    std::function<void(void)> populatePythonFuturesFunction,
-    std::function<void(void)> requestNotifierFunction,
+    ProgressWorkerFunction progressFunction,
     const bool& stop,
     ProgressThreadStartCallback startCallback,
     ProgressThreadStartCallbackArg startCallbackArg,
@@ -86,10 +91,8 @@ class WorkerProgressThread {
    *                                        processed during progress.
    */
   WorkerProgressThread(const bool pollingMode,
-                       std::function<bool(void)> progressFunction,
-                       std::function<void(void)> populatePythonFuturesFunction,
-                       std::function<void(void)> requestNotifierFunction,
-                       std::function<void(void)> signalWorkerFunction,
+                       ProgressWorkerFunction progressFunction,
+                       SignalWorkerFunction signalWorkerFunction,
                        ProgressThreadStartCallback startCallback,
                        ProgressThreadStartCallbackArg startCallbackArg,
                        std::shared_ptr<DelayedSubmissionCollection> delayedSubmissionCollection);
@@ -99,7 +102,7 @@ class WorkerProgressThread {
    *
    * Raises the stop signal and joins the thread.
    */
-  ~WorkerProgressThread();
+  virtual ~WorkerProgressThread();
 
   /**
    * @brief Returns whether the thread was created for polling progress mode.
