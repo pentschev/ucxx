@@ -312,9 +312,10 @@ cdef extern from "<ucxx/request_tag_multi.h>" namespace "ucxx" nogil:
         cpp_bool isCompleted()
         ucs_status_t getStatus()
         void checkError() except +raise_py_error
+        void* getFuture() except +raise_py_error
 
 
-cdef extern from "<ucxx/python_notifier_app.h>" namespace "python_notifier" nogil:
+cdef extern from "<ucxx/python/python_notifier_app.h>" namespace "python_notifier" nogil:
     cdef cppclass Application:
         Application(PyObject* asyncio_event_loop)
         PyObject* submit(double duration, long long id)

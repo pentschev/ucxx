@@ -18,7 +18,9 @@ namespace ucxx {
 namespace python {
 
 Future::Future(PyObject* asyncioEventLoop, std::shared_ptr<Notifier> notifier)
-  : ::ucxx::Future(notifier), _asyncioEventLoop(asyncioEventLoop)
+  : ::ucxx::Future(notifier),
+    _asyncioEventLoop(asyncioEventLoop),
+    _handle{create_python_future(asyncioEventLoop)}
 {
 }
 

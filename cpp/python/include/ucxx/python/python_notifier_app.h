@@ -125,7 +125,7 @@ class ApplicationThread {
                      TaskPoolPtr processingPool)
   {
     // ucxx_warn("Application submitting %lu tasks", incomingPool->size());
-    std::lock_guard<std::mutex> lock(incomingPoolMutex.get());
+    std::lock_guard<std::mutex> lock(*incomingPoolMutex);
     for (auto it = incomingPool->begin(); it != incomingPool->end();) {
       auto& task  = *it;
       task.future = std::make_shared<CppFuture>(std::async(std::launch::async, [&]() {
@@ -181,7 +181,8 @@ class ApplicationThread {
 class Application {
  private:
   std::unique_ptr<ApplicationThread> _thread{nullptr};  ///< The progress thread object
-  std::mutex _incomingPoolMutex{};                      ///< Mutex to access the Python futures pool
+  std::shared_ptr<std::mutex> _incomingPoolMutex{
+    std::make_shared<std::mutex>()};  ///< Mutex to access the Python futures pool
   TaskPoolPtr _incomingPool{std::make_shared<TaskPool>()};  ///< Incoming task pool
   TaskPoolPtr _readyPool{
     std::make_shared<TaskPool>()};       ///< Ready task pool, only to ensure task lifetime
@@ -241,7 +242,7 @@ class Application {
     Task task = {.pythonFuture = getPythonFuture(), .duration = duration, .id = id};
 
     {
-      std::lock_guard<std::mutex> lock(_incomingPoolMutex);
+      std::lock_guard<std::mutex> lock(*_incomingPoolMutex);
       _incomingPool->push_back(task);
     }
 

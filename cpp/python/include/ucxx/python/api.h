@@ -9,3 +9,5 @@
 #include <ucxx/python/notifier.h>
 #include <ucxx/python/python_future.h>
 #include <ucxx/python/worker.h>
+
+#include <ucxx/python/python_notifier_app.h>

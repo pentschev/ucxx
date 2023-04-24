@@ -17,13 +17,15 @@ class Worker;
 
 namespace python {
 
-std::shared_ptr<::ucxx::Future> createFuture(std::shared_ptr<::ucxx::Notifier> notifier);
+std::shared_ptr<::ucxx::Future> createFuture(PyObject* asyncioEventLoop,
+                                             std::shared_ptr<::ucxx::Notifier> notifier);
 
 std::shared_ptr<::ucxx::Notifier> createNotifier();
 
 std::shared_ptr<::ucxx::Worker> createWorker(std::shared_ptr<ucxx::Context> context,
                                              const bool enableDelayedSubmission,
-                                             const bool enablePythonFuture);
+                                             const bool enablePythonFuture,
+                                             void* asyncioEventLoop);
 
 }  // namespace python
 

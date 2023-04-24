@@ -138,6 +138,19 @@ class Worker : public ::ucxx::Worker {
    * Signals the notifier to terminate, awakening the `waitRequestNotifier()` blocking call.
    */
   void stopRequestNotifierThread() override;
+
+  /**
+   * @brief Start the progress thread.
+   *
+   * Spawns a new thread that will take care of continuously progressing the worker. The
+   * thread can progress the worker in blocking mode, using `progressWorkerEvent()` only
+   * when worker events happen, or in polling mode by continuously calling `progress()`
+   * (incurs in high CPU utilization).
+   *
+   * @param[in] pollingMode use polling mode if `true`, or blocking mode if `false`.
+   * @param[in] callbackArg argument to be passed to the callback function
+   */
+  virtual void startProgressThread(const bool pollingMode = false);
 };
 
 }  // namespace python

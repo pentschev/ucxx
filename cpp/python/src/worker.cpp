@@ -21,15 +21,17 @@ namespace python {
 
 Worker::Worker(std::shared_ptr<Context> context,
                const bool enableDelayedSubmission,
-               const bool enableFuture)
-  : ::ucxx::Worker(context, enableDelayedSubmission)
+               const bool enableFuture,
+               void* asyncioEventLoop)
+  : ::ucxx::Worker(context, enableDelayedSubmission),
+    _asyncioEventLoop(static_cast<PyObject*>(asyncioEventLoop))
 {
   if (_enableFuture) {
     if (_asyncioEventLoop == nullptr) {
       ucxx_warn(
         "enablePythonFuture set to true, but no valid asyncio event loop specified, "
         "Python futures will be disabled.");
-      _enablePythonFuture = false;
+      _enableFuture = false;
     } else {
       _notifier = createNotifier();
     }
@@ -38,10 +40,11 @@ Worker::Worker(std::shared_ptr<Context> context,
 
 std::shared_ptr<::ucxx::Worker> createWorker(std::shared_ptr<Context> context,
                                              const bool enableDelayedSubmission,
-                                             const bool enableFuture)
+                                             const bool enableFuture,
+                                             void* asyncioEventLoop)
 {
   return std::shared_ptr<::ucxx::Worker>(
-    new ::ucxx::python::Worker(context, enableDelayedSubmission, enableFuture));
+    new ::ucxx::python::Worker(context, enableDelayedSubmission, enableFuture, asyncioEventLoop));
 }
 
 void Worker::populateFuturesPool()
@@ -53,7 +56,7 @@ void Worker::populateFuturesPool()
       std::lock_guard<std::mutex> lock(_futuresPoolMutex);
       PyGILState_STATE state = PyGILState_Ensure();
       while (_futuresPool.size() < 100)
-        _futuresPool.emplace(createFuture(_notifier));
+        _futuresPool.emplace(createFuture(_asyncioEventLoop, _notifier));
       PyGILState_Release(state);
     }
   } else {

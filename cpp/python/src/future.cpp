@@ -50,7 +50,7 @@ PyObject* create_python_future(PyObject* event_loop)
     goto finish;
   }
 
-  result = PyObject_CallMethodNoArgs(event_loop, create_future_str);
+  result = PyObject_CallMethodObjArgs(event_loop, create_future_str, NULL);
   if (PyErr_Occurred()) {
     ucxx_trace_req("Error calling event loop `create_future`.");
     PyErr_Print();

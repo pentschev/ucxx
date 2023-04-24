@@ -40,6 +40,8 @@ class Worker : public Component {
     _inflightRequestsToCancelMutex{};  ///< Mutex to access the inflight requests to cancel pool
   std::shared_ptr<InflightRequests> _inflightRequestsToCancel{
     std::make_shared<InflightRequests>()};  ///< The inflight requests scheduled to be canceled
+
+ protected:
   std::shared_ptr<WorkerProgressThread> _progressThread{nullptr};  ///< The progress thread object
   std::function<void(void*)> _progressThreadStartCallback{
     nullptr};  ///< The callback function to execute at progress thread start
@@ -47,8 +49,6 @@ class Worker : public Component {
     nullptr};  ///< The argument to be passed to the progress thread start callback
   std::shared_ptr<DelayedSubmissionCollection> _delayedSubmissionCollection{
     nullptr};  ///< Collection of enqueued delayed submissions
-
- protected:
   bool _enableFuture{
     false};  ///< Boolean identifying whether the worker was created with future capability
   std::mutex _futuresPoolMutex{};  ///< Mutex to access the futures pool

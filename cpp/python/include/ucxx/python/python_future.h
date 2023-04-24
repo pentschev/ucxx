@@ -22,7 +22,7 @@ namespace python {
 class Future : public ::ucxx::Future {
  private:
   PyObject* _asyncioEventLoop{nullptr};  ///< The asyncio event loop the Python future belongs to.
-  PyObject* _handle{create_python_future()};  ///< The handle to the Python future
+  PyObject* _handle{nullptr};            ///< The handle to the Python future
 
   /**
    * @brief Construct a future that may be notified from a notifier thread.
