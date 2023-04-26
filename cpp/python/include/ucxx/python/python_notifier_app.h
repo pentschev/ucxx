@@ -127,10 +127,13 @@ class ApplicationThread {
     // ucxx_warn("Application submitting %lu tasks", incomingPool->size());
     std::lock_guard<std::mutex> lock(*incomingPoolMutex);
     for (auto it = incomingPool->begin(); it != incomingPool->end();) {
-      auto& task  = *it;
-      task.future = std::make_shared<CppFuture>(std::async(std::launch::async, [&]() {
-        std::this_thread::sleep_for(std::chrono::duration<double>(task.duration));
-        return task.id;
+      auto& task    = *it;
+      auto id       = task.id;
+      auto duration = task.duration;
+      task.future   = std::make_shared<CppFuture>(std::async(std::launch::async, [id, duration]() {
+        ucxx_warn("Task with id %llu sleeping for %f", id, duration);
+        std::this_thread::sleep_for(std::chrono::duration<double>(duration));
+        return id;
       }));
       processingPool->push_back(task);
       it = incomingPool->erase(it);
