@@ -143,23 +143,22 @@ class ApplicationThread {
   static void processLoop(TaskPoolPtr processingPool, TaskPoolPtr readyPool)
   {
     // ucxx_warn("Processing %lu tasks", processingPool->size());
-    for (auto it = processingPool->begin(); it != processingPool->end();) {
-      auto& task = *it;
-      // 50 ms
-      std::future_status status = task.future->wait_for(std::chrono::duration<double>(0.05));
-      if (status == std::future_status::ready) {
-        ucxx_warn("Task %llu ready", task.id);
-        // TODO: generalized implementation required instead of always taking `ucs_status_t`
-        task.pythonFuture->set(task.id);
-        readyPool->push_back(task);
-        it = processingPool->erase(it);
+    while (!processingPool->empty()) {
+      for (auto it = processingPool->begin(); it != processingPool->end();) {
+        auto& task = *it;
+        // 10 ms
+        std::future_status status = task.future->wait_for(std::chrono::duration<double>(0.01));
+        if (status == std::future_status::ready) {
+          ucxx_warn("Task %llu ready", task.id);
+          // TODO: generalized implementation required instead of always taking `ucs_status_t`
+          task.pythonFuture->set(task.id);
+          readyPool->push_back(task);
+          it = processingPool->erase(it);
+          continue;
+        }
+
+        ++it;
       }
-      // else {
-      //   if (status == std::future_status::deferred)
-      //     ucxx_warn("Task %llu deferred", task.id);
-      //   else if (status == std::future_status::deferred)
-      //     ucxx_warn("Task %llu timed out", task.id)
-      // }
     }
   }
 
