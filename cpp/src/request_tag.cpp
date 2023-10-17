@@ -94,14 +94,14 @@ void RequestTag::request()
 {
   static const ucp_tag_t tagMask = -1;
 
-  ucp_request_param_t param = {.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK |
-                                               UCP_OP_ATTR_FIELD_DATATYPE |
-                                               UCP_OP_ATTR_FIELD_USER_DATA,
-                               .datatype  = ucp_dt_make_contig(1),
-                               .user_data = this};
-  void* request             = nullptr;
+  void* request = nullptr;
 
   if (_delayedSubmission->_send) {
+    ucp_request_param_t param = {
+      .op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE |
+                      UCP_OP_ATTR_FIELD_RECV_INFO | UCP_OP_ATTR_FIELD_USER_DATA,
+      .datatype  = ucp_dt_make_contig(1),
+      .user_data = this};
     param.cb.send = tagSendCallback;
     request       = ucp_tag_send_nbx(_endpoint->getHandle(),
                                _delayedSubmission->_buffer,
@@ -109,13 +109,28 @@ void RequestTag::request()
                                _delayedSubmission->_tag,
                                &param);
   } else {
-    param.cb.recv = tagRecvCallback;
-    request       = ucp_tag_recv_nbx(_worker->getHandle(),
+    ucp_request_param_t param{0};
+    param.op_attr_mask =
+      UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_RECV_INFO | UCP_OP_ATTR_FIELD_USER_DATA;
+    param.user_data = this;
+    param.cb.recv   = tagRecvCallback;
+
+    ucp_tag_recv_info_t recv_info{0};
+    param.recv_info.tag_info = &recv_info;
+
+    request = ucp_tag_recv_nbx(_worker->getHandle(),
                                _delayedSubmission->_buffer,
                                _delayedSubmission->_length,
                                _delayedSubmission->_tag,
                                tagMask,
                                &param);
+
+    if (UCS_PTR_STATUS((ucs_status_ptr_t)(request)) == UCS_OK)
+      ucxx_warn("Request completed, length: %lu (expected: %lu), tag: 0x%x (expected: 0x%x)",
+                recv_info.length,
+                _delayedSubmission->_length,
+                recv_info.sender_tag,
+                _delayedSubmission->_tag);
   }
 
   std::lock_guard<std::recursive_mutex> lock(_mutex);
