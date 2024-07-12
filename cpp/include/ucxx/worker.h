@@ -622,10 +622,10 @@ class Worker : public Component {
    * inflight requests for that endpoint will not be completed successfully and should be
    * canceled.
    *
-   * @param[in] trackedRequests the requests tracked by a child of this class to be
-   *                            scheduled for cancelation.
+   * @param[in] inflightRequests  the inflight requests previously owned by a child of this
+   *                              class to schedule for cancelation.
    */
-  void scheduleRequestCancel(TrackedRequestsPtr trackedRequests);
+  void scheduleRequestCancel(std::unique_ptr<InflightRequests> inflightRequests);
 
   /**
    * @brief Remove reference to request from internal container.

@@ -104,10 +104,10 @@ class InflightRequests {
    * Merge containers of inflight requests obtained from `InflightRequests::release()` of
    * another object with the internal containers.
    *
-   * @param[in] trackedRequests containers of tracked inflight requests to merge with the
-   *                            internal tracked inflight requests.
+   * @param[in] inflightRequests  inflight requests container to merge with the internal
+   *                              inflight requests.
    */
-  void merge(TrackedRequestsPtr trackedRequests);
+  void merge(std::unique_ptr<InflightRequests> inflightRequests);
 
   /**
    * @brief Remove an inflight request from the internal container.
@@ -132,17 +132,6 @@ class InflightRequests {
    * @returns The total number of canceled requests.
    */
   size_t cancelAll();
-
-  /**
-   * @brief Releases the internally-tracked containers.
-   *
-   * Releases the internally-tracked containers that can be merged into another
-   * `InflightRequests` object with `InflightRequests::merge()`. Effectively leaves the
-   * internal state as a clean, new object.
-   *
-   * @returns The internally-tracked containers.
-   */
-  TrackedRequestsPtr release();
 
   /**
    * @brief Get count of requests in process of cancelation.

@@ -67,7 +67,9 @@ void endpointErrorCallback(void* arg, ucp_ep_h ep, ucs_status_t status)
 
   endpoint->_status = status;
   auto worker       = ::ucxx::getWorker(endpoint->_parent);
-  worker->scheduleRequestCancel(endpoint->_inflightRequests->release());
+  auto inflightRequests =
+    std::exchange(endpoint->_inflightRequests, std::make_unique<InflightRequests>());
+  worker->scheduleRequestCancel(std::move(inflightRequests));
   {
     std::lock_guard<std::mutex> lock(endpoint->_mutex);
     if (endpoint->_closeCallback) {
@@ -385,8 +387,9 @@ std::shared_ptr<Request> Endpoint::registerInflightRequest(std::shared_ptr<Reque
    * cancelation, including the present one.
    */
   if (_status != UCS_INPROGRESS) {
-    auto worker = ::ucxx::getWorker(_parent);
-    worker->scheduleRequestCancel(_inflightRequests->release());
+    auto worker           = ::ucxx::getWorker(_parent);
+    auto inflightRequests = std::exchange(_inflightRequests, std::make_unique<InflightRequests>());
+    worker->scheduleRequestCancel(std::move(inflightRequests));
   }
 
   return request;

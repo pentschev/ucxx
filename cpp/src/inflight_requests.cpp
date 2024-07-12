@@ -27,19 +27,19 @@ void InflightRequests::insert(std::shared_ptr<Request> request)
   _trackedRequests->_inflight.insert({request.get(), request});
 }
 
-void InflightRequests::merge(TrackedRequestsPtr trackedRequests)
+void InflightRequests::merge(std::unique_ptr<InflightRequests> inflightRequests)
 {
   {
-    if (trackedRequests == nullptr) return;
+    if (inflightRequests == nullptr) return;
 
-    std::scoped_lock localLock{_mutex};
+    std::scoped_lock localLock{_mutex, inflightRequests->_mutex};
     std::scoped_lock lock{_trackedRequests->_cancelMutex,
                           _trackedRequests->_mutex,
-                          trackedRequests->_cancelMutex,
-                          trackedRequests->_mutex};
+                          inflightRequests->_trackedRequests->_cancelMutex,
+                          inflightRequests->_trackedRequests->_mutex};
 
-    _trackedRequests->_inflight.merge(trackedRequests->_inflight);
-    _trackedRequests->_canceling.merge(trackedRequests->_canceling);
+    _trackedRequests->_inflight.merge(inflightRequests->_trackedRequests->_inflight);
+    _trackedRequests->_canceling.merge(inflightRequests->_trackedRequests->_canceling);
   }
 }
 
@@ -155,14 +155,6 @@ size_t InflightRequests::cancelAll()
   }
 
   return total;
-}
-
-TrackedRequestsPtr InflightRequests::release()
-{
-  std::scoped_lock localLock{_mutex};
-  std::scoped_lock lock{_trackedRequests->_cancelMutex, _trackedRequests->_mutex};
-
-  return std::exchange(_trackedRequests, std::make_unique<TrackedRequests>());
 }
 
 }  // namespace ucxx
