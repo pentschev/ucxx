@@ -2,6 +2,8 @@
  * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+#include <chrono>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -67,19 +69,35 @@ int main()
 
   // Create 3 endpoints from client worker to server
   std::vector<std::shared_ptr<ucxx::Endpoint>> client_endpoints;
+  std::cout << std::fixed
+            << std::setprecision(3);  // Set floating point precision for timing output
+
   for (int i = 0; i < 3; i++) {
+    auto start_time = std::chrono::high_resolution_clock::now();
+
     auto endpoint = client_worker->createEndpointFromHostname("127.0.0.1", listener_port, true);
     client_endpoints.push_back(endpoint);
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration<double, std::milli>(end_time - start_time);
+
     std::cout << "Created client endpoint " << i + 1 << " with handle: " << std::hex
-              << reinterpret_cast<uintptr_t>(endpoint->getHandle()) << std::dec << std::endl;
+              << reinterpret_cast<uintptr_t>(endpoint->getHandle()) << std::dec << " (took "
+              << duration.count() << " ms)" << std::endl;
   }
 
   // Progress both workers to ensure connections are established
+  auto progress_start = std::chrono::high_resolution_clock::now();
+
   for (int i = 0; i < 100; i++) {
     server_worker->progress();
     client_worker->progress();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+
+  auto progress_end      = std::chrono::high_resolution_clock::now();
+  auto progress_duration = std::chrono::duration<double, std::milli>(progress_end - progress_start);
+  std::cout << "Total progress time: " << progress_duration.count() << " ms" << std::endl;
 
   return 0;
 }
