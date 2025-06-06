@@ -47,6 +47,7 @@ endfunction()
 # ##################################################################################################
 # * basic example ---------------------------------------------------------------------------------
 ConfigureBench(ucxx_example_basic basic.cpp)
+ConfigureBench(ucxx_example_multiple_endpoints multiple_endpoints.cpp)
 
 add_custom_target(
   run_examples

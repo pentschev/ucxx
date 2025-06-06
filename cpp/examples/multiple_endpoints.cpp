@@ -53,6 +53,11 @@ static void listener_cb(ucp_conn_request_h conn_request, void* arg)
   listener_ctx->createEndpointFromConnRequest(conn_request);
 }
 
+enum class EndpointSource {
+  Hostname = 0,
+  WorkerAddress,
+};
+
 int main()
 {
   // Create context with default feature flags
@@ -72,19 +77,33 @@ int main()
   std::cout << std::fixed
             << std::setprecision(3);  // Set floating point precision for timing output
 
-  for (int i = 0; i < 3; i++) {
-    auto start_time = std::chrono::high_resolution_clock::now();
+  auto create_endpoints = [&](EndpointSource source) {
+    for (int i = 0; i < 10; i++) {
+      auto start_time = std::chrono::high_resolution_clock::now();
 
-    auto endpoint = client_worker->createEndpointFromHostname("127.0.0.1", listener_port, true);
-    client_endpoints.push_back(endpoint);
+      std::shared_ptr<ucxx::Endpoint> endpoint;
+      if (source == EndpointSource::Hostname) {
+        endpoint = client_worker->createEndpointFromHostname("127.0.0.1", listener_port, true);
+      } else {
+        endpoint =
+          client_worker->createEndpointFromWorkerAddress(server_worker->getAddress(), true);
+      }
+      client_endpoints.push_back(endpoint);
 
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration<double, std::milli>(end_time - start_time);
+      auto end_time = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration<double, std::milli>(end_time - start_time);
 
-    std::cout << "Created client endpoint " << i + 1 << " with handle: " << std::hex
-              << reinterpret_cast<uintptr_t>(endpoint->getHandle()) << std::dec << " (took "
-              << duration.count() << " ms)" << std::endl;
-  }
+      auto source_str = source == EndpointSource::Hostname ? "Hostname" : "WorkerAddress";
+
+      std::cout << "Created client endpoint " << i + 1 << " from " << source_str
+                << " with handle: " << std::hex
+                << reinterpret_cast<uintptr_t>(endpoint->getHandle()) << std::dec << " (took "
+                << duration.count() << " ms)" << std::endl;
+    }
+  };
+
+  create_endpoints(EndpointSource::WorkerAddress);
+  create_endpoints(EndpointSource::Hostname);
 
   // Progress both workers to ensure connections are established
   auto progress_start = std::chrono::high_resolution_clock::now();
