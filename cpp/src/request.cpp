@@ -69,7 +69,7 @@ Request::Request(std::shared_ptr<Component> endpointOrWorker,
 Request::~Request()
 {
   if (_cancelCallback != nullptr) {
-    auto completed  = _cancelCallbackNotifier.wait(1000000000 /* 1s */);
+    _cancelCallbackNotifier.wait(1000000000 /* 1s */);
     _cancelCallback = nullptr;
   }
   if (UCS_PTR_IS_PTR(_request)) {
@@ -100,10 +100,8 @@ void Request::cancelImpl()
                        ucs_status_string(status));
     } else {
       if (_request != nullptr) {
-        ucs_status_t status = UCS_PTR_STATUS(_request);
         ucxx_trace_req_f(_ownerString.c_str(), this, _request, _operationName.c_str(), "canceling");
         ucp_request_cancel(_worker->getHandle(), _request);
-        status = UCS_PTR_STATUS(_request);
 
         /**
          * Tag send requests cannot be canceled: https://github.com/openucx/ucx/issues/1162
@@ -147,7 +145,7 @@ void Request::cancel()
       cancelImpl();
       _cancelCallbackNotifier.set();
     };
-    // The Cancel callback is store in an attributed, thus we do not need to
+    // The Cancel callback is stored in an attribute, thus we do not need to
     // cancel it if it fails to run immediately.
     std::ignore = _worker->registerGenericPre(_cancelCallback);
   } else {
