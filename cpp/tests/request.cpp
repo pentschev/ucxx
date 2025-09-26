@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #include <algorithm>
@@ -19,6 +19,10 @@
 #include "ucxx/buffer.h"
 #include "ucxx/constructors.h"
 #include "ucxx/utils/ucx.h"
+
+#if UCXX_ENABLE_RMM
+#include <rmm/device_buffer.hpp>
+#endif
 
 namespace {
 
@@ -50,22 +54,23 @@ class RequestTest : public ::testing::TestWithParam<
   std::vector<DataContainerType> _recv;
   std::vector<std::unique_ptr<ucxx::Buffer>> _sendBuffer;
   std::vector<std::unique_ptr<ucxx::Buffer>> _recvBuffer;
-  std::vector<void*> _sendPtr{nullptr};
+  std::vector<const void*> _sendPtr{nullptr};
   std::vector<void*> _recvPtr{nullptr};
 
   void SetUp()
   {
+    std::tie(_bufferType,
+             _registerCustomAmAllocator,
+             _enableDelayedSubmission,
+             _progressMode,
+             _messageLength) = GetParam();
+
     if (_bufferType == ucxx::BufferType::RMM) {
 #if !UCXX_ENABLE_RMM
       GTEST_SKIP() << "UCXX was not built with RMM support";
 #endif
     }
 
-    std::tie(_bufferType,
-             _registerCustomAmAllocator,
-             _enableDelayedSubmission,
-             _progressMode,
-             _messageLength) = GetParam();
     _memoryType =
       (_bufferType == ucxx::BufferType::RMM) ? UCS_MEMORY_TYPE_CUDA : UCS_MEMORY_TYPE_HOST;
     _messageSize = _messageLength * sizeof(int);
@@ -164,13 +169,14 @@ TEST_P(RequestTest, ProgressAm)
     GTEST_SKIP() << "Interrupting UCP worker progress operation in wait mode is not possible";
   }
 
-#if !UCXX_ENABLE_RMM
-  GTEST_SKIP() << "UCXX was not built with RMM support";
-#else
   if (_registerCustomAmAllocator && _memoryType == UCS_MEMORY_TYPE_CUDA) {
+#if !UCXX_ENABLE_RMM
+    GTEST_SKIP() << "UCXX was not built with RMM support";
+#else
     _worker->registerAmAllocator(UCS_MEMORY_TYPE_CUDA, [](size_t length) {
       return std::make_shared<ucxx::RMMBuffer>(length);
     });
+#endif
   }
 
   allocate(1, false);
@@ -194,7 +200,6 @@ TEST_P(RequestTest, ProgressAm)
 
   // Assert data correctness
   ASSERT_THAT(_recv[0], ContainerEq(_send[0]));
-#endif
 }
 
 TEST_P(RequestTest, ProgressAmReceiverCallback)
@@ -203,13 +208,14 @@ TEST_P(RequestTest, ProgressAmReceiverCallback)
     GTEST_SKIP() << "Interrupting UCP worker progress operation in wait mode is not possible";
   }
 
-#if !UCXX_ENABLE_RMM
-  GTEST_SKIP() << "UCXX was not built with RMM support";
-#else
   if (_registerCustomAmAllocator && _memoryType == UCS_MEMORY_TYPE_CUDA) {
+#if !UCXX_ENABLE_RMM
+    GTEST_SKIP() << "UCXX was not built with RMM support";
+#else
     _worker->registerAmAllocator(UCS_MEMORY_TYPE_CUDA, [](size_t length) {
       return std::make_shared<ucxx::RMMBuffer>(length);
     });
+#endif
   }
 
   // Define AM receiver callback's owner and id for callback
@@ -222,7 +228,7 @@ TEST_P(RequestTest, ProgressAmReceiverCallback)
   // Define AM receiver callback and register with worker
   std::vector<std::shared_ptr<ucxx::Request>> receivedRequests;
   auto callback = ucxx::AmReceiverCallbackType(
-    [this, &receivedRequests, &mutex](std::shared_ptr<ucxx::Request> req) {
+    [this, &receivedRequests, &mutex](std::shared_ptr<ucxx::Request> req, ucp_ep_h) {
       {
         std::lock_guard<std::mutex> lock(mutex);
         receivedRequests.push_back(req);
@@ -256,7 +262,6 @@ TEST_P(RequestTest, ProgressAmReceiverCallback)
 
   // Assert data correctness
   ASSERT_THAT(_recv[0], ContainerEq(_send[0]));
-#endif
 }
 
 TEST_P(RequestTest, ProgressStream)
@@ -265,8 +270,8 @@ TEST_P(RequestTest, ProgressStream)
 
   // Submit and wait for transfers to complete
   if (_messageSize == 0) {
-    EXPECT_THROW(_ep->streamSend(_sendPtr[0], _messageSize, 0), std::runtime_error);
-    EXPECT_THROW(_ep->streamRecv(_recvPtr[0], _messageSize, 0), std::runtime_error);
+    EXPECT_THROW(std::ignore = _ep->streamSend(_sendPtr[0], _messageSize, 0), std::runtime_error);
+    EXPECT_THROW(std::ignore = _ep->streamRecv(_recvPtr[0], _messageSize, 0), std::runtime_error);
   } else {
     std::vector<std::shared_ptr<ucxx::Request>> requests;
     requests.push_back(_ep->streamSend(_sendPtr[0], _messageSize, 0));
@@ -449,7 +454,9 @@ TEST_P(RequestTest, MemoryGetPreallocated)
 {
   allocate();
 
-  auto memoryHandle = _context->createMemoryHandle(_messageSize, _sendPtr[0], _memoryType);
+  // Memory handles are always non-const
+  auto memoryHandle =
+    _context->createMemoryHandle(_messageSize, const_cast<void*>(_sendPtr[0]), _memoryType);
   // If message size is 0, there's no allocation and memory type is then "host" by default.
   if (_messageSize > 0) ASSERT_EQ(memoryHandle->getMemoryType(), _memoryType);
 
@@ -571,7 +578,7 @@ TEST_P(RequestTest, MemoryPutWithOffset)
   auto remoteKey           = ucxx::createRemoteKeyFromSerialized(_ep, serializedRemoteKey);
 
   std::vector<std::shared_ptr<ucxx::Request>> requests;
-  requests.push_back(_ep->memPut(reinterpret_cast<char*>(_sendPtr[0]) + offsetBytes,
+  requests.push_back(_ep->memPut(reinterpret_cast<const char*>(_sendPtr[0]) + offsetBytes,
                                  _messageSize - offsetBytes,
                                  remoteKey,
                                  offsetBytes));

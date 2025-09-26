@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: BSD-3-Clause
 
 
@@ -9,6 +9,7 @@ from libcpp cimport bool as cpp_bool
 from libcpp.functional cimport function
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport nullopt_t, optional
+from libcpp.pair cimport pair
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map as cpp_unordered_map
 from libcpp.vector cimport vector
@@ -53,6 +54,9 @@ cdef extern from "ucp/api/ucp.h" nogil:
         pass
 
     ctypedef uint64_t ucp_tag_t
+
+    ctypedef struct ucp_tag_recv_info_t:
+        pass
 
     ctypedef enum ucs_status_t:
         pass
@@ -174,10 +178,12 @@ cdef extern from "<ucxx/api.h>" namespace "ucxx" nogil:
         pass
     cdef enum TagMask:
         pass
+    cdef cppclass TagRecvInfo:
+        TagRecvInfo(const ucp_tag_recv_info_t&)
+        Tag senderTag
+        size_t length
     cdef cppclass AmReceiverCallbackInfo:
         pass
-    # ctypedef Tag CppTag
-    # ctypedef TagMask CppTagMask
 
     # Using function[Buffer] here doesn't seem possible due to Cython bugs/limitations.
     # The workaround is to use a raw C function pointer and let it be parsed by the
@@ -241,7 +247,7 @@ cdef extern from "<ucxx/api.h>" namespace "ucxx" nogil:
         size_t cancelInflightRequests(
             uint64_t period, uint64_t maxAttempts
         ) except +raise_py_error
-        bint tagProbe(const Tag) const
+        pair[bint, TagRecvInfo] tagProbe(const Tag, const TagMask) const
         void setProgressThreadStartCallback(
             function[void(void*)] callback, void* callbackArg
         )
@@ -251,6 +257,7 @@ cdef extern from "<ucxx/api.h>" namespace "ucxx" nogil:
         ) except +raise_py_error
         void runRequestNotifier() except +raise_py_error
         void populateFuturesPool() except +raise_py_error
+        void clearFuturesPool()
         shared_ptr[Request] tagRecv(
             void* buffer,
             size_t length,
@@ -272,7 +279,7 @@ cdef extern from "<ucxx/api.h>" namespace "ucxx" nogil:
         ) except +raise_py_error
         void closeBlocking(uint64_t period, uint64_t maxAttempts)
         shared_ptr[Request] amSend(
-            void* buffer,
+            const void* const buffer,
             size_t length,
             ucs_memory_type_t memory_type,
             # Using `nullopt_t` is a workaround for Cython error
@@ -285,13 +292,13 @@ cdef extern from "<ucxx/api.h>" namespace "ucxx" nogil:
             bint enable_python_future
         ) except +raise_py_error
         shared_ptr[Request] streamSend(
-            void* buffer, size_t length, bint enable_python_future
+            const void* const buffer, size_t length, bint enable_python_future
         ) except +raise_py_error
         shared_ptr[Request] streamRecv(
             void* buffer, size_t length, bint enable_python_future
         ) except +raise_py_error
         shared_ptr[Request] tagSend(
-            void* buffer, size_t length, Tag tag, bint enable_python_future
+            const void* const buffer, size_t length, Tag tag, bint enable_python_future
         ) except +raise_py_error
         shared_ptr[Request] tagRecv(
             void* buffer,
@@ -301,7 +308,7 @@ cdef extern from "<ucxx/api.h>" namespace "ucxx" nogil:
             bint enable_python_future
         ) except +raise_py_error
         shared_ptr[Request] tagMultiSend(
-            const vector[void*]& buffer,
+            const vector[const void*]& buffer,
             const vector[size_t]& length,
             const vector[int]& isCUDA,
             Tag tag,

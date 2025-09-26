@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #pragma once
@@ -10,6 +10,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include <ucp/api/ucp.h>
 
@@ -187,9 +188,9 @@ class Worker : public Component {
    *                         `ucxx::Request`, currently used only by `ucxx::python::Worker`.
    * @returns The `shared_ptr<ucxx::Worker>` object
    */
-  [[nodiscard]] friend std::shared_ptr<Worker> createWorker(std::shared_ptr<Context> context,
-                                                            const bool enableDelayedSubmission,
-                                                            const bool enableFuture);
+  friend std::shared_ptr<Worker> createWorker(std::shared_ptr<Context> context,
+                                              const bool enableDelayedSubmission,
+                                              const bool enableFuture);
 
   /**
    * @brief `ucxx::Worker` destructor.
@@ -500,7 +501,7 @@ class Worker : public Component {
   [[nodiscard]] bool isFutureEnabled() const;
 
   /**
-   * @brief Populate the future pool.
+   * @brief Populate the futures pool.
    *
    * To avoid taking blocking resources (such as the Python GIL) for every new future
    * required by each `ucxx::Request`, the `ucxx::Worker` maintains a pool of futures
@@ -511,6 +512,17 @@ class Worker : public Component {
    * @throws std::runtime_error if future support is not implemented.
    */
   virtual void populateFuturesPool();
+
+  /**
+   * @brief Clear the futures pool.
+   *
+   * Clear the futures pool, ensuring all references are removed and thus avoiding
+   * reference cycles that prevent the `ucxx::Worker` and other resources from cleaning
+   * up on time.
+   *
+   * @throws std::runtime_error if future support is not implemented.
+   */
+  virtual void clearFuturesPool();
 
   /**
    * @brief Get a future from the pool.
@@ -673,21 +685,33 @@ class Worker : public Component {
    *
    * Checks the worker for any uncaught tag messages. An uncaught tag message is any
    * tag message that has been fully or partially received by the worker, but not matched
-   * by a corresponding `ucp_tag_recv_*` call.
+   * by a corresponding `ucp_tag_recv_*` call. Additionally, returns information about the
+   * tag message.
+   *
+   * Note this is a non-blocking call, if this is being used to actively check for an
+   * incoming message the worker should be constantly progress until a valid probe is
+   * returned.
    *
    * @code{.cpp}
    * // `worker` is `std::shared_ptr<ucxx::Worker>`
-   * assert(!worker->tagProbe(0));
+   * auto probe = worker->tagProbe(0);
+   * assert(!probe.first)
    *
    * // `ep` is a remote `std::shared_ptr<ucxx::Endpoint` to the local `worker`
    * ep->tagSend(buffer, length, 0);
    *
-   * assert(worker->tagProbe(0));
+   * probe = worker->tagProbe(0);
+   * assert(probe.first);
+   * assert(probe.second.tag == 0);
+   * assert(probe.second.length == length);
    * @endcode
    *
-   * @returns `true` if any uncaught messages were received, `false` otherwise.
+   * @returns pair where first elements is `true` if any uncaught messages were received,
+   *          `false` otherwise, and second element contain the information from the tag
+   *          receive.
    */
-  [[nodiscard]] bool tagProbe(const Tag tag);
+  [[nodiscard]] std::pair<bool, TagRecvInfo> tagProbe(const Tag tag,
+                                                      const TagMask tagMask = TagMaskFull);
 
   /**
    * @brief Enqueue a tag receive operation.
@@ -700,6 +724,13 @@ class Worker : public Component {
    * Using a future may be requested by specifying `enableFuture` if the worker
    * implementation has support for it. If a future is requested, the application must then
    * await on this future to ensure the transfer has completed.
+   *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
    *
    * @param[in] buffer            a raw pointer to pre-allocated memory where resulting
    *                              data will be stored.
@@ -861,7 +892,6 @@ class Worker : public Component {
    * the registered callback cannot be changed, thus calling this method with the same
    * given owner and identifier will throw `std::runtime_error`.
    *
-   *
    * @code{.cpp}
    * // `worker` is `std::shared_ptr<ucxx::Worker>`
    * auto callback = [](std::shared_ptr<ucxx::Request> req) {
@@ -875,10 +905,8 @@ class Worker : public Component {
    *                            already registered, or if the reserved owner name "ucxx"
    *                            is specified.
    *
-   * @param[in] receiverCallbackInfo    the owner name and unique identifier of the receiver
-                                        callback.
-   * @param[in] callback                the callback to execute when the active message is
-   *                                    received.
+   * @param[in] info      the owner name and unique identifier of the receiver callback.
+   * @param[in] callback  the callback to execute when the active message is received.
    */
   void registerAmReceiverCallback(AmReceiverCallbackInfo info, AmReceiverCallbackType callback);
 
@@ -905,7 +933,7 @@ class Worker : public Component {
 
   /**
    * @brief Enqueue a flush operation.
-
+   *
    * Enqueue request to flush outstanding AMO (Atomic Memory Operation) and RMA (Remote
    * Memory Access) operations on the worker, returning a pointer to a request object that
    * can be later awaited and checked for errors. This is a non-blocking operation, and its
@@ -916,7 +944,13 @@ class Worker : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
-   * @param[in] buffer              a raw pointer to the data to be sent.
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
    * @param[in] callbackFunction    user-defined callback function to call upon completion.

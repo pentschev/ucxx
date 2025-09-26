@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import logging
@@ -23,6 +23,14 @@ from .utils import get_event_loop, hash64bits
 logger = logging.getLogger("ucx")
 
 
+ProgressTasks = dict()
+
+
+def clear_progress_tasks():
+    global ProgressTasks
+    ProgressTasks.clear()
+
+
 class ApplicationContext:
     """
     The context of the Asyncio interface of UCX.
@@ -38,9 +46,8 @@ class ApplicationContext:
         progress_mode=None,
         enable_delayed_submission=None,
         enable_python_future=None,
-        exchange_peer_info_timeout=10.0,
+        connect_timeout=None,
     ):
-        self.progress_tasks = dict()
         self.notifier_thread_q = None
         self.notifier_thread = None
         self._listener_active_clients = ActiveClients()
@@ -50,7 +57,10 @@ class ApplicationContext:
         self.enable_delayed_submission = enable_delayed_submission
         self.enable_python_future = enable_python_future
 
-        self.exchange_peer_info_timeout = exchange_peer_info_timeout
+        if connect_timeout is None:
+            self.connect_timeout = float(os.environ.get("UCXPY_CONNECT_TIMEOUT", 5))
+        else:
+            self.connect_timeout = connect_timeout
 
         # For now, a application context only has one worker
         self.context = ucx_api.UCXContext(config_dict)
@@ -62,7 +72,7 @@ class ApplicationContext:
 
         self.start_notifier_thread()
 
-        weakref.finalize(self, self.progress_tasks.clear)
+        weakref.finalize(self, clear_progress_tasks)
 
         # Ensure progress even before Endpoints get created, for example to
         # receive messages directly on a worker after a remote endpoint
@@ -194,6 +204,10 @@ class ApplicationContext:
     def worker_address(self):
         return self.worker.address
 
+    def clear_progress_tasks(self) -> None:
+        global ProgressTasks
+        ProgressTasks.clear()
+
     def start_notifier_thread(self):
         if self.worker.enable_python_future and self.notifier_thread is None:
             logger.debug("UCXX_ENABLE_PYTHON available, enabling notifier thread")
@@ -243,7 +257,7 @@ class ApplicationContext:
         callback_func,
         port=0,
         endpoint_error_handling=True,
-        exchange_peer_info_timeout=5.0,
+        connect_timeout=5.0,
     ):
         """Create and start a listener to accept incoming connections
 
@@ -267,7 +281,7 @@ class ApplicationContext:
             but prevents a process from terminating unexpectedly that may
             happen when disabled. If `False` endpoint endpoint error handling
             is disabled.
-        exchange_peer_info_timeout: float
+        connect_timeout: float
             Timeout in seconds for exchanging peer info. In some cases, exchanging
             peer information may hang indefinitely, a timeout prevents that. If the
             chosen value is too high it may cause the operation to be stuck for too
@@ -299,7 +313,7 @@ class ApplicationContext:
                     callback_func,
                     self,
                     endpoint_error_handling,
-                    exchange_peer_info_timeout,
+                    connect_timeout,
                     listener_id,
                     self._listener_active_clients,
                 ),
@@ -315,7 +329,7 @@ class ApplicationContext:
         ip_address,
         port,
         endpoint_error_handling=True,
-        exchange_peer_info_timeout=5.0,
+        connect_timeout=5.0,
     ):
         """Create a new endpoint to a server
 
@@ -331,7 +345,7 @@ class ApplicationContext:
             but prevents a process from terminating unexpectedly that may
             happen when disabled. If `False` endpoint endpoint error handling
             is disabled.
-        exchange_peer_info_timeout: float
+        connect_timeout: float
             Timeout in seconds for exchanging peer info. In some cases, exchanging
             peer information may hang indefinitely, a timeout prevents that. If the
             chosen value is too high it may cause the operation to be stuck for too
@@ -358,14 +372,12 @@ class ApplicationContext:
         #  3) Use the info to create an endpoint
         seed = os.urandom(16)
         msg_tag = hash64bits("msg_tag", seed, ucx_ep.handle)
-        ctrl_tag = hash64bits("ctrl_tag", seed, ucx_ep.handle)
         try:
             peer_info = await exchange_peer_info(
                 endpoint=ucx_ep,
                 msg_tag=msg_tag,
-                ctrl_tag=ctrl_tag,
                 listener=False,
-                stream_timeout=exchange_peer_info_timeout,
+                connect_timeout=connect_timeout,
             )
         except UCXMessageTruncatedError as e:
             # A truncated message occurs if the remote endpoint closed before
@@ -378,21 +390,17 @@ class ApplicationContext:
         tags = {
             "msg_send": peer_info["msg_tag"],
             "msg_recv": msg_tag,
-            "ctrl_send": peer_info["ctrl_tag"],
-            "ctrl_recv": ctrl_tag,
         }
         ep = Endpoint(endpoint=ucx_ep, ctx=self, tags=tags)
 
         logger.debug(
             "create_endpoint() client: %s, error handling: %s, msg-tag-send: %s, "
-            "msg-tag-recv: %s, ctrl-tag-send: %s, ctrl-tag-recv: %s"
+            "msg-tag-recv: %s"
             % (
                 hex(ep._ep.handle),
                 endpoint_error_handling,
                 hex(ep._tags["msg_send"]),
                 hex(ep._tags["msg_recv"]),
-                hex(ep._tags["ctrl_send"]),
-                hex(ep._tags["ctrl_recv"]),
             )
         )
 
@@ -456,8 +464,11 @@ class ApplicationContext:
             Python 3.10+) is used.
         """
         loop = event_loop if event_loop is not None else get_event_loop()
-        if loop in self.progress_tasks:
+        global ProgressTasks
+        if loop in ProgressTasks:
             return  # Progress has already been guaranteed for the current event loop
+
+        logger.info(f"Starting progress in '{self.progress_mode}' mode")
 
         if self.progress_mode == "thread":
             task = ThreadMode(self.worker, loop, polling_mode=False)
@@ -468,7 +479,7 @@ class ApplicationContext:
         elif self.progress_mode == "blocking":
             task = BlockingMode(self.worker, loop)
 
-        self.progress_tasks[loop] = task
+        ProgressTasks[loop] = task
 
     def get_ucp_worker(self):
         """Returns the underlying UCP worker handle (ucp_worker_h)

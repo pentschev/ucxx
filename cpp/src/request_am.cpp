@@ -1,12 +1,15 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #include <cstdio>
 #include <memory>
+#include <queue>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <ucp/api/ucp.h>
 
@@ -101,8 +104,12 @@ std::shared_ptr<RequestAm> createRequestAm(
   std::shared_ptr<RequestAm> req = std::visit(
     data::dispatch{
       [endpoint, enablePythonFuture, callbackFunction, callbackData](data::AmSend amSend) {
-        auto req = std::shared_ptr<RequestAm>(new RequestAm(
-          endpoint, amSend, "amSend", enablePythonFuture, callbackFunction, callbackData));
+        auto req = std::shared_ptr<RequestAm>(new RequestAm(endpoint,
+                                                            amSend,
+                                                            std::move("amSend"),
+                                                            enablePythonFuture,
+                                                            callbackFunction,
+                                                            callbackData));
 
         // A delayed notification request is not populated immediately, instead it is
         // delayed to allow the worker progress thread to set its status, and more
@@ -115,14 +122,15 @@ std::shared_ptr<RequestAm> createRequestAm(
       [endpoint, enablePythonFuture, callbackFunction, callbackData](data::AmReceive amReceive) {
         auto worker = endpoint->getWorker();
 
-        auto createRequest = [endpoint,
-                              amReceive,
-                              enablePythonFuture,
-                              callbackFunction,
-                              callbackData]() {
-          return std::shared_ptr<RequestAm>(new RequestAm(
-            endpoint, amReceive, "amReceive", enablePythonFuture, callbackFunction, callbackData));
-        };
+        auto createRequest =
+          [endpoint, amReceive, enablePythonFuture, callbackFunction, callbackData]() {
+            return std::shared_ptr<RequestAm>(new RequestAm(endpoint,
+                                                            amReceive,
+                                                            std::move("amReceive"),
+                                                            enablePythonFuture,
+                                                            callbackFunction,
+                                                            callbackData));
+          };
         auto req       = worker->getAmRecv(endpoint->getHandle(), createRequest);
         req->_endpoint = endpoint;
         return req;
@@ -135,23 +143,23 @@ std::shared_ptr<RequestAm> createRequestAm(
 
 RequestAm::RequestAm(std::shared_ptr<Component> endpointOrWorker,
                      const std::variant<data::AmSend, data::AmReceive> requestData,
-                     const std::string operationName,
+                     std::string operationName,
                      const bool enablePythonFuture,
                      RequestCallbackUserFunction callbackFunction,
                      RequestCallbackUserData callbackData)
   : Request(endpointOrWorker,
             data::getRequestData(requestData),
-            operationName,
+            std::move(operationName),
             enablePythonFuture,
             callbackFunction,
             callbackData)
 {
   std::visit(data::dispatch{
-               [this](data::AmSend amSend) {
+               [this](data::AmSend) {
                  if (_endpoint == nullptr)
                    throw ucxx::Error("An endpoint is required to send active messages");
                },
-               [](data::AmReceive amReceive) {},
+               [](data::AmReceive) {},
              },
              requestData);
 }
@@ -185,7 +193,7 @@ static void _amSendCallback(void* request, ucs_status_t status, void* user_data)
 
 static void _recvCompletedCallback(void* request,
                                    ucs_status_t status,
-                                   size_t length,
+                                   size_t /* length */,
                                    void* user_data)
 {
   internal::RecvAmMessage* recvAmMessage = static_cast<internal::RecvAmMessage*>(user_data);
@@ -225,7 +233,7 @@ ucs_status_t RequestAm::recvCallback(void* arg,
       try {
         return amData->_receiverCallbacks.at(amHeader.receiverCallbackInfo->owner)
           .at(amHeader.receiverCallbackInfo->id);
-      } catch (std::out_of_range) {
+      } catch (const std::out_of_range& e) {
         ucxx_error("No AM receiver callback registered for owner '%s' with id %lu",
                    std::string(amHeader.receiverCallbackInfo->owner).data(),
                    amHeader.receiverCallbackInfo->id);
@@ -241,21 +249,34 @@ ucs_status_t RequestAm::recvCallback(void* arg,
 
     auto reqs = recvWait.find(ep);
     if (amHeader.receiverCallbackInfo) {
-      req = std::shared_ptr<RequestAm>(new RequestAm(
-        worker, data::AmReceive(), "amReceive", worker->isFutureEnabled(), nullptr, nullptr));
+      req = std::shared_ptr<RequestAm>(new RequestAm(worker,
+                                                     data::AmReceive(),
+                                                     std::move("amReceive"),
+                                                     worker->isFutureEnabled(),
+                                                     nullptr,
+                                                     nullptr));
       ucxx_trace_req_f(ownerString.c_str(), req.get(), nullptr, "amRecv", "receiverCallback");
     } else if (reqs != recvWait.end() && !reqs->second.empty()) {
       req = reqs->second.front();
       reqs->second.pop();
       ucxx_trace_req_f(ownerString.c_str(), req.get(), nullptr, "amRecv", "recvWait");
     } else {
-      req             = std::shared_ptr<RequestAm>(new RequestAm(
-        worker, data::AmReceive(), "amReceive", worker->isFutureEnabled(), nullptr, nullptr));
+      req             = std::shared_ptr<RequestAm>(new RequestAm(worker,
+                                                     data::AmReceive(),
+                                                     std::move("amReceive"),
+                                                     worker->isFutureEnabled(),
+                                                     nullptr,
+                                                     nullptr));
       auto [queue, _] = recvPool.try_emplace(ep, std::queue<std::shared_ptr<RequestAm>>());
       queue->second.push(req);
       ucxx_trace_req_f(ownerString.c_str(), req.get(), nullptr, "amRecv", "recvPool");
     }
   }
+
+  // Return immediately if the request's status has already been set before the
+  // callback executed, e.g., the user called `amRecv()` before the request arrived and
+  // canceled it.
+  if (req->getStatus() != UCS_INPROGRESS) return req->getStatus();
 
   if (is_rndv) {
     if (amData->_allocators.find(amHeader.memoryType) == amData->_allocators.end()) {
@@ -389,18 +410,18 @@ void RequestAm::request()
         ucp_request_param_t param = {.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK |
                                                      UCP_OP_ATTR_FIELD_FLAGS |
                                                      UCP_OP_ATTR_FIELD_USER_DATA,
-                                     .flags = UCP_AM_SEND_FLAG_REPLY | UCP_AM_SEND_FLAG_COPY_HEADER,
+                                     .flags     = UCP_AM_SEND_FLAG_REPLY,
                                      .datatype  = ucp_dt_make_contig(1),
                                      .user_data = this};
 
-        param.cb.send         = _amSendCallback;
-        AmHeader header       = {.memoryType           = amSend._memoryType,
-                                 .receiverCallbackInfo = amSend._receiverCallbackInfo};
-        auto headerSerialized = header.serialize();
-        void* request         = ucp_am_send_nbx(_endpoint->getHandle(),
+        param.cb.send   = _amSendCallback;
+        AmHeader header = {.memoryType           = amSend._memoryType,
+                           .receiverCallbackInfo = amSend._receiverCallbackInfo};
+        _header         = header.serialize();
+        void* request   = ucp_am_send_nbx(_endpoint->getHandle(),
                                         0,
-                                        headerSerialized.data(),
-                                        headerSerialized.size(),
+                                        _header.data(),
+                                        _header.size(),
                                         amSend._buffer,
                                         amSend._length,
                                         &param);
@@ -417,7 +438,7 @@ void RequestAm::populateDelayedSubmission()
 {
   bool terminate =
     std::visit(data::dispatch{
-                 [this](data::AmSend amSend) {
+                 [this](data::AmSend) {
                    if (_endpoint->getHandle() == nullptr) {
                      ucxx_warn("Endpoint was closed before message could be sent");
                      Request::callback(this, UCS_ERR_CANCELED);

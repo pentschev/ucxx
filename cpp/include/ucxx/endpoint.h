@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #pragma once
@@ -55,9 +55,9 @@ class Endpoint : public Component {
   bool _endpointErrorHandling{true};  ///< Whether the endpoint enables error handling
   std::unique_ptr<InflightRequests> _inflightRequests{
     std::make_unique<InflightRequests>()};  ///< The inflight requests
-  std::mutex _mutex{std::mutex()};  ///< Mutex used during close to prevent race conditions between
-                                    ///< application thread and `ucxx::Endpoint::setCloseCallback()`
-                                    ///< that may run asynchronously on another thread.
+  std::mutex _mutex{};  ///< Mutex used during close to prevent race conditions between
+                        ///< application thread and `ucxx::Endpoint::setCloseCallback()`
+                        ///< that may run asynchronously on another thread.
   ucs_status_t _status{UCS_INPROGRESS};  ///< Endpoint status
   std::atomic<bool> _closing{false};     ///< Prevent calling close multiple concurrent times.
   std::atomic<bool> _stopping{false};    ///< Signal whether endpoint is stopping.
@@ -163,11 +163,10 @@ class Endpoint : public Component {
    *
    * @returns The `shared_ptr<ucxx::Endpoint>` object
    */
-  [[nodiscard]] friend std::shared_ptr<Endpoint> createEndpointFromHostname(
-    std::shared_ptr<Worker> worker,
-    std::string ipAddress,
-    uint16_t port,
-    bool endpointErrorHandling);
+  friend std::shared_ptr<Endpoint> createEndpointFromHostname(std::shared_ptr<Worker> worker,
+                                                              std::string ipAddress,
+                                                              uint16_t port,
+                                                              bool endpointErrorHandling);
 
   /**
    * @brief Constructor for `shared_ptr<ucxx::Endpoint>`.
@@ -191,8 +190,9 @@ class Endpoint : public Component {
    *
    * @returns The `shared_ptr<ucxx::Endpoint>` object
    */
-  [[nodiscard]] friend std::shared_ptr<Endpoint> createEndpointFromConnRequest(
-    std::shared_ptr<Listener> listener, ucp_conn_request_h connRequest, bool endpointErrorHandling);
+  friend std::shared_ptr<Endpoint> createEndpointFromConnRequest(std::shared_ptr<Listener> listener,
+                                                                 ucp_conn_request_h connRequest,
+                                                                 bool endpointErrorHandling);
 
   /**
    * @brief Constructor for `shared_ptr<ucxx::Endpoint>`.
@@ -213,8 +213,9 @@ class Endpoint : public Component {
    *
    * @returns The `shared_ptr<ucxx::Endpoint>` object
    */
-  [[nodiscard]] friend std::shared_ptr<Endpoint> createEndpointFromWorkerAddress(
-    std::shared_ptr<Worker> worker, std::shared_ptr<Address> address, bool endpointErrorHandling);
+  friend std::shared_ptr<Endpoint> createEndpointFromWorkerAddress(std::shared_ptr<Worker> worker,
+                                                                   std::shared_ptr<Address> address,
+                                                                   bool endpointErrorHandling);
 
   /**
    * @brief Get the underlying `ucp_ep_h` handle.
@@ -377,6 +378,13 @@ class Endpoint : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @throws  ucxx::RejectedError if `stop()` was already called.
    *
    * @param[in] buffer                  a raw pointer to the data to be sent.
@@ -393,7 +401,7 @@ class Endpoint : public Component {
    * @returns Request to be subsequently checked for the completion and its state.
    */
   [[nodiscard]] std::shared_ptr<Request> amSend(
-    void* buffer,
+    const void* const buffer,
     const size_t length,
     const ucs_memory_type_t memoryType,
     const std::optional<AmReceiverCallbackInfo> receiverCallbackInfo = std::nullopt,
@@ -414,6 +422,13 @@ class Endpoint : public Component {
    * Using a Python future may be requested by specifying `enablePythonFuture`. If a
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
+   *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
    *
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
@@ -439,6 +454,13 @@ class Endpoint : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @throws  ucxx::RejectedError if `stop()` was already called.
    *
    * @param[in] buffer              a raw pointer to the data to be sent.
@@ -448,13 +470,15 @@ class Endpoint : public Component {
    *                                address.
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
+   * @param[in] callbackFunction    user-defined callback function to call upon completion.
+   * @param[in] callbackData        user-defined data to pass to the `callbackFunction`.
    *
    * @returns Request to be subsequently checked for the completion and its state.
    */
   [[nodiscard]] std::shared_ptr<Request> memPut(
-    void* buffer,
+    const void* const buffer,
     size_t length,
-    uint64_t remote_addr,
+    uint64_t remoteAddr,
     ucp_rkey_h rkey,
     const bool enablePythonFuture                = false,
     RequestCallbackUserFunction callbackFunction = nullptr,
@@ -472,6 +496,13 @@ class Endpoint : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @throws  ucxx::RejectedError if `stop()` was already called.
    *
    * @param[in] buffer              a raw pointer to the data to be sent.
@@ -483,11 +514,13 @@ class Endpoint : public Component {
    *                                of the base address.
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
+   * @param[in] callbackFunction    user-defined callback function to call upon completion.
+   * @param[in] callbackData        user-defined data to pass to the `callbackFunction`.
    *
    * @returns Request to be subsequently checked for the completion and its state.
    */
   [[nodiscard]] std::shared_ptr<Request> memPut(
-    void* buffer,
+    const void* const buffer,
     size_t length,
     std::shared_ptr<ucxx::RemoteKey> remoteKey,
     uint64_t remoteAddrOffset                    = 0,
@@ -507,6 +540,13 @@ class Endpoint : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @throws  ucxx::RejectedError if `stop()` was already called.
    *
    * @param[in] buffer              a raw pointer to the data to be sent.
@@ -516,6 +556,8 @@ class Endpoint : public Component {
    *                                address.
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
+   * @param[in] callbackFunction    user-defined callback function to call upon completion.
+   * @param[in] callbackData        user-defined data to pass to the `callbackFunction`.
    *
    * @returns Request to be subsequently checked for the completion and its state.
    */
@@ -540,6 +582,13 @@ class Endpoint : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @throws  ucxx::RejectedError if `stop()` was already called.
    *
    * @param[in] buffer              a raw pointer to the data to be sent.
@@ -551,6 +600,8 @@ class Endpoint : public Component {
    *                                beginning of the base address.
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
+   * @param[in] callbackFunction    user-defined callback function to call upon completion.
+   * @param[in] callbackData        user-defined data to pass to the `callbackFunction`.
    *
    * @returns Request to be subsequently checked for the completion and its state.
    */
@@ -584,7 +635,7 @@ class Endpoint : public Component {
    *
    * @returns Request to be subsequently checked for the completion and its state.
    */
-  [[nodiscard]] std::shared_ptr<Request> streamSend(void* buffer,
+  [[nodiscard]] std::shared_ptr<Request> streamSend(const void* const buffer,
                                                     size_t length,
                                                     const bool enablePythonFuture = false);
 
@@ -626,6 +677,13 @@ class Endpoint : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @throws  ucxx::RejectedError if `stop()` was already called.
    *
    * @param[in] buffer              a raw pointer to the data to be sent.
@@ -639,7 +697,7 @@ class Endpoint : public Component {
    * @returns Request to be subsequently checked for the completion and its state.
    */
   [[nodiscard]] std::shared_ptr<Request> tagSend(
-    void* buffer,
+    const void* const buffer,
     size_t length,
     Tag tag,
     const bool enablePythonFuture                = false,
@@ -657,6 +715,13 @@ class Endpoint : public Component {
    * Using a Python future may be requested by specifying `enablePythonFuture`. If a
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
+   *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
    *
    * @param[in] buffer              a raw pointer to pre-allocated memory where resulting
    *                                data will be stored.
@@ -713,7 +778,7 @@ class Endpoint : public Component {
    *
    * @returns Request to be subsequently checked for the completion and its state.
    */
-  [[nodiscard]] std::shared_ptr<Request> tagMultiSend(const std::vector<void*>& buffer,
+  [[nodiscard]] std::shared_ptr<Request> tagMultiSend(const std::vector<const void*>& buffer,
                                                       const std::vector<size_t>& size,
                                                       const std::vector<int>& isCUDA,
                                                       const Tag tag,
@@ -758,7 +823,13 @@ class Endpoint : public Component {
    * Python future is requested, the Python application must then await on this future to
    * ensure the transfer has completed. Requires UCXX Python support.
    *
-   * @param[in] buffer              a raw pointer to the data to be sent.
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
    * @param[in] callbackFunction    user-defined callback function to call upon completion.
@@ -791,21 +862,6 @@ class Endpoint : public Component {
    * `std::shared_ptr<ucxx::Request>` objects are still alive, such as inflight transfers,
    * or the user wants to have more control over cancelation and closing order.
    *
-   * @warning Unlike its `closeBlocking()` counterpart, this method does not cancel any
-   * inflight requests prior to submitting the UCP close request. Before scheduling the
-   * endpoint close request, the caller is advised to first call `stop()` to prevent new
-   * requests that require an active endpoint from being registered and once `stop()` is
-   * called, the user may call `cancelInflightRequests()` specifying a callback that can
-   * be used to submit a `close()` request, or may check for the number of inflight and
-   * canceling requests via `getInflightSize()` and `getCancelingSize()` methods,
-   * respectively, and issue the non-blocking `close()` of the worker once both return
-   * `0` or after a certain period of time has elapsed and the application cannot wait
-   * anymore for their completion. Note that `cancelInflightRequests()` callback is not
-   * guaranteed to be called, nor are `getCancelingSize()` and `getInflightSize()`
-   * guaranteed to go to `0` depending on the requests being handled, and thus the user is
-   * advised to provide a forceful termination mechanism in case the requests can never
-   * complete.
-   *
    * This method returns a `std::shared<ucxx::Request>` that can be later awaited and
    * checked for errors. This is a non-blocking operation, and the status of closing the
    * endpoint must be verified from the resulting request object before the
@@ -824,6 +880,28 @@ class Endpoint : public Component {
    * Using a Python future may be requested by specifying `enablePythonFuture`. If a
    * Python future is requested, the Python application must then await on this future to
    * ensure the close operation has completed. Requires UCXX Python support.
+   *
+   * @note If a `callbackFunction` is specified, the lifetime of `callbackData` and of any
+   * other objects used in the scope of `callbackFunction` must be guaranteed by the caller
+   * until it executes or `isCompleted()` becomes true. The `callbackFunction` executes in
+   * the thread progressing the `ucxx::Worker`, unless the request completes immediately,
+   * in which case the callback will also execute immediately within the calling thread and
+   * before the method returns.
+   *
+   * @warning Unlike its `closeBlocking()` counterpart, this method does not cancel any
+   * inflight requests prior to submitting the UCP close request. Before scheduling the
+   * endpoint close request, the caller is advised to first call `stop()` to prevent new
+   * requests that require an active endpoint from being registered and once `stop()` is
+   * called, the user may call `cancelInflightRequests()` specifying a callback that can
+   * be used to submit a `close()` request, or may check for the number of inflight and
+   * canceling requests via `getInflightSize()` and `getCancelingSize()` methods,
+   * respectively, and issue the non-blocking `close()` of the worker once both return
+   * `0` or after a certain period of time has elapsed and the application cannot wait
+   * anymore for their completion. Note that `cancelInflightRequests()` callback is not
+   * guaranteed to be called, nor are `getCancelingSize()` and `getInflightSize()`
+   * guaranteed to go to `0` depending on the requests being handled, and thus the user is
+   * advised to provide a forceful termination mechanism in case the requests can never
+   * complete.
    *
    * @param[in] enablePythonFuture  whether a python future should be created and
    *                                subsequently notified.
