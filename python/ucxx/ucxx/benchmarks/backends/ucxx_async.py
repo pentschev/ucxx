@@ -36,7 +36,7 @@ def register_am_allocators(args: Namespace):
         import cupy as cp
 
         ucxx.register_am_allocator(lambda n: cp.empty(n, dtype=cp.uint8), "cuda")
-    elif args.object_type == "rmm":
+    elif args.object_type in ["rmm", "rmm-managed", "rmm-async"]:
         import rmm
 
         ucxx.register_am_allocator(lambda n: rmm.DeviceBuffer(size=n), "cuda")
@@ -56,11 +56,7 @@ class UCXPyAsyncServer(BaseServer):
     async def run(self):
         ucxx.init(progress_mode=self.args.progress_mode)
 
-        xp = get_allocator(
-            self.args.object_type,
-            self.args.rmm_init_pool_size,
-            self.args.rmm_managed_memory,
-        )
+        xp = get_allocator(self.args.object_type, self.args.rmm_init_pool_size)
 
         register_am_allocators(self.args)
 
@@ -121,11 +117,7 @@ class UCXPyAsyncClient(BaseClient):
     async def run(self):
         ucxx.init(progress_mode=self.args.progress_mode)
 
-        xp = get_allocator(
-            self.args.object_type,
-            self.args.rmm_init_pool_size,
-            self.args.rmm_managed_memory,
-        )
+        xp = get_allocator(self.args.object_type, self.args.rmm_init_pool_size)
 
         register_am_allocators(self.args)
 

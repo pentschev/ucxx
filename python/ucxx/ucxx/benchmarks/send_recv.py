@@ -53,7 +53,7 @@ def _get_backend_implementation(backend):
 
 
 def _set_cuda_device(object_type, device):
-    if object_type in ["cupy", "rmm"]:
+    if object_type in ["cupy", "rmm", "rmm-managed", "rmm-async"]:
         import numba.cuda
 
         os.environ["CUDA_VISIBLE_DEVICES"] = str(device)
@@ -206,7 +206,7 @@ def parse_args():
         "-o",
         "--object_type",
         default="numpy",
-        choices=["numpy", "cupy", "rmm"],
+        choices=["numpy", "cupy", "rmm", "rmm-managed", "rmm-async"],
         help="In-memory array type.",
     )
     parser.add_argument(
@@ -288,12 +288,6 @@ def parse_args():
         help="Use Active Message API instead of TAG for transfers",
     )
     parser.add_argument(
-        "--rmm-managed-memory",
-        default=False,
-        action="store_true",
-        help="Use RMM managed memory (requires `--object-type rmm`)",
-    )
-    parser.add_argument(
         "--no-detailed-report",
         default=False,
         action="store_true",
@@ -355,17 +349,15 @@ def parse_args():
 
     if args.cuda_profile and args.object_type == "numpy":
         raise RuntimeError(
-            "`--cuda-profile` requires `--object_type=cupy` or `--object_type=rmm`"
+            "`--cuda-profile` requires `--object_type=cupy` or an RMM object type"
         )
-    if args.rmm_managed_memory and args.object_type != "rmm":
-        raise RuntimeError("`--rmm-managed-memory` requires `--object_type=rmm`")
 
     backend_impl = _get_backend_implementation(args.backend)
     if not (
         backend_impl["client"].has_cuda_support
         and backend_impl["server"].has_cuda_support
     ):
-        if args.object_type in {"cupy", "rmm"}:
+        if args.object_type in {"cupy", "rmm", "rmm-managed", "rmm-async"}:
             raise RuntimeError(
                 f"Backend '{args.backend}' does not support CUDA transfers"
             )

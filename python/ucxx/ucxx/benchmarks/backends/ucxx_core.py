@@ -87,7 +87,7 @@ def register_am_allocators(args: Namespace, worker: ucx_api.UCXWorker):
         worker.register_am_allocator(
             lambda n: cp.empty(n, dtype=cp.uint8), ucx_api.AllocatorType.CUDA
         )
-    elif args.object_type == "rmm":
+    elif args.object_type in ["rmm", "rmm-managed", "rmm-async"]:
         import rmm
 
         worker.register_am_allocator(
@@ -117,11 +117,7 @@ class UCXPyCoreServer(BaseServer):
         )
         worker = ucx_api.UCXWorker(ctx)
 
-        xp = get_allocator(
-            self.args.object_type,
-            self.args.rmm_init_pool_size,
-            self.args.rmm_managed_memory,
-        )
+        xp = get_allocator(self.args.object_type, self.args.rmm_init_pool_size)
 
         register_am_allocators(self.args, worker)
 
@@ -216,11 +212,7 @@ class UCXPyCoreClient(BaseClient):
         )
         worker = ucx_api.UCXWorker(ctx)
 
-        xp = get_allocator(
-            self.args.object_type,
-            self.args.rmm_init_pool_size,
-            self.args.rmm_managed_memory,
-        )
+        xp = get_allocator(self.args.object_type, self.args.rmm_init_pool_size)
         register_am_allocators(self.args, worker)
         send_msg = Array(xp.arange(self.args.n_bytes, dtype="u1"))
 
