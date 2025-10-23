@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import asyncio
@@ -27,44 +27,68 @@ def _ensure_cuda_device(devs, rank):
     numba.cuda.current_context()
 
 
-def get_allocator(
-    object_type: str, rmm_init_pool_size: int, rmm_managed_memory: bool
-) -> ModuleType:
+def get_allocator(object_type: str, rmm_init_pool_size: int = None) -> ModuleType:
     """
     Initialize and return array-allocator based on arguments passed.
 
     Parameters
     ----------
     object_type: str
-        The type of object the allocator should return. Options are: "numpy", "cupy"
-        or "rmm".
-    rmm_init_pool_size: int
-        If the object type is "rmm" (implies usage of RMM pool), define the initial
-        pool size.
-    rmm_managed_memory: bool
-        If the object type is "rmm", use managed memory if `True`, or default memory
-        otherwise.
+        The type of object the allocator should return. Options are: "numpy", "cupy",
+        "rmm", "rmm-managed", or "rmm-async".
+    rmm_init_pool_size: int, optional
+        If the object type is "rmm" or "rmm-managed" (implies usage of RMM pool),
+        define the initial pool size. Not used for "rmm-async". If not specified,
+        uses RMM's default initial pool size.
     Returns
     -------
     A handle to a module, one of ``numpy`` or ``cupy`` (if device memory is requested).
-    If the object type is ``rmm``, then ``cupy`` is configured to use RMM as an
-    allocator.
+    If the object type is ``rmm``, ``rmm-managed``, or ``rmm-async``, then ``cupy``
+    is configured to use RMM as an allocator.
     """
     if object_type == "numpy":
         import numpy as xp
     elif object_type == "cupy":
         import cupy as xp
+    elif object_type == "rmm-async":
+        import cupy as xp
+
+        import rmm
+        from rmm.allocators.cupy import rmm_cupy_allocator
+        from rmm.mr import CudaAsyncMemoryResource
+
+        mr = CudaAsyncMemoryResource()
+        rmm.mr.set_current_device_resource(mr)
+        xp.cuda.set_allocator(rmm_cupy_allocator)
+    elif object_type == "rmm-managed":
+        import cupy as xp
+
+        import rmm
+        from rmm.allocators.cupy import rmm_cupy_allocator
+
+        rmm_kwargs = {
+            "pool_allocator": True,
+            "managed_memory": True,
+        }
+        if rmm_init_pool_size is not None:
+            rmm_kwargs["initial_pool_size"] = rmm_init_pool_size
+
+        rmm.reinitialize(**rmm_kwargs)
+        xp.cuda.set_allocator(rmm_cupy_allocator)
     else:
         import cupy as xp
 
         import rmm
         from rmm.allocators.cupy import rmm_cupy_allocator
 
-        rmm.reinitialize(
-            pool_allocator=True,
-            managed_memory=rmm_managed_memory,
-            initial_pool_size=rmm_init_pool_size,
-        )
+        rmm_kwargs = {
+            "pool_allocator": True,
+            "managed_memory": False,
+        }
+        if rmm_init_pool_size is not None:
+            rmm_kwargs["initial_pool_size"] = rmm_init_pool_size
+
+        rmm.reinitialize(**rmm_kwargs)
         xp.cuda.set_allocator(rmm_cupy_allocator)
 
     return xp
