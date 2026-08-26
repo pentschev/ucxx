@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #include <sched.h>   // for cpu_set_t, CPU_SET, CPU_ZERO, sched_setaffinity
@@ -258,6 +258,8 @@ static void printUsage(std::string_view executablePath)
   std::cerr << "               cuda-managed - CUDA managed memory/unified virtual memory (UVM)"
             << std::endl;
   std::cerr << "                 cuda-async - CUDA stream-ordered memory" << std::endl;
+  std::cerr << "            cuda-async-pool - CUDA stream-ordered memory from a dedicated pool"
+            << std::endl;
 #ifdef UCXX_BENCHMARKS_ENABLE_RMM
   std::cerr << "                   rmm-cuda - RMM CUDA default memory" << std::endl;
   std::cerr << "              rmm-cuda-pool - RMM pool backed by CUDA default memory" << std::endl;

@@ -60,6 +60,19 @@ ConfigureTest(
   listener.cpp request.cpp request_builders.cpp rma.cpp utils.cpp worker.cpp
 )
 
+if(BUILD_BENCHMARKS AND UCXX_BENCHMARKS_ENABLE_CUDA)
+  find_package(CUDAToolkit REQUIRED)
+  add_executable(UCXX_BENCHMARK_BUFFER_TEST benchmark_buffer.cpp)
+  target_include_directories(UCXX_BENCHMARK_BUFFER_TEST PRIVATE "${UCXX_SOURCE_DIR}/include")
+  target_compile_definitions(UCXX_BENCHMARK_BUFFER_TEST PRIVATE UCXX_BENCHMARKS_ENABLE_CUDA)
+  target_link_libraries(UCXX_BENCHMARK_BUFFER_TEST PRIVATE CUDA::cudart_static)
+  set_target_properties(
+    UCXX_BENCHMARK_BUFFER_TEST PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON
+  )
+  add_test(NAME UCXX_BENCHMARK_BUFFER_TEST COMMAND UCXX_BENCHMARK_BUFFER_TEST)
+  set_tests_properties(UCXX_BENCHMARK_BUFFER_TEST PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
 # ##################################################################################################
 # enable testing ################################################################################
 # ##################################################################################################

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
 set -euo pipefail
@@ -113,6 +113,10 @@ run_cpp_benchmark_cuda_tests() {
     # Test CUDA async memory
     run_cpp_benchmark "${SERVER_PORT}" "${PROGRESS_MODE}" "tag_lat" "cuda-async" "8388608" "20" "3" "50.0" "" "" ""
     run_cpp_benchmark "${SERVER_PORT}" "${PROGRESS_MODE}" "tag_bw" "cuda-async" "8388608" "20" "3" "50.0" "" "" ""
+
+    # Test CUDA async memory backed by explicit memory pools
+    run_cpp_benchmark "${SERVER_PORT}" "${PROGRESS_MODE}" "tag_lat" "cuda-async-pool" "8388608" "20" "3" "50.0" "" "" ""
+    run_cpp_benchmark "${SERVER_PORT}" "${PROGRESS_MODE}" "tag_bw" "cuda-async-pool" "8388608" "20" "3" "50.0" "" "" ""
 
     # Test with smaller message sizes for CUDA
     run_cpp_benchmark "${SERVER_PORT}" "${PROGRESS_MODE}" "tag_lat" "cuda" "1024" "20" "3" "50.0" "" "" ""

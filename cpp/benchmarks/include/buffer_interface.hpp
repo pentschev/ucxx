@@ -1,14 +1,15 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #pragma once
 
 #include <algorithm>
 #include <iostream>
-#include <stdexcept>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -51,6 +52,7 @@ enum class MemoryType {
   Cuda,
   CudaManaged,
   CudaAsync,
+  CudaAsyncPool,
 #endif
 #ifdef UCXX_BENCHMARKS_ENABLE_RMM
   RmmDeviceMemoryResource,
@@ -86,6 +88,8 @@ std::string getMemoryTypeString(MemoryType memoryType) {
     return "cuda-managed";
   else if (memoryType == MemoryType::CudaAsync)
     return "cuda-async";
+  else if (memoryType == MemoryType::CudaAsyncPool)
+    return "cuda-async-pool";
 #endif
 #ifdef UCXX_BENCHMARKS_ENABLE_RMM
   else if (memoryType == MemoryType::RmmDeviceMemoryResource)
@@ -133,6 +137,8 @@ MemoryType getMemoryTypeFromString(std::string memoryTypeString) {
     return MemoryType::CudaManaged;
   else if (memoryTypeString == "cuda-async")
     return MemoryType::CudaAsync;
+  else if (memoryTypeString == "cuda-async-pool")
+    return MemoryType::CudaAsyncPool;
 #endif
 #ifdef UCXX_BENCHMARKS_ENABLE_RMM
   else if (memoryTypeString == "rmm-cuda")
@@ -313,12 +319,73 @@ struct CudaAsyncBuffer {
   }
 };
 
+// CUDA async memory buffer structure backed by an explicit CUDA memory pool.
+struct CudaAsyncPoolBuffer {
+  void* ptr{nullptr};
+  size_t size{0};
+  cudaStream_t stream{nullptr};
+  cudaMemPool_t pool{nullptr};
+
+  CudaAsyncPoolBuffer() = default;
+  explicit CudaAsyncPoolBuffer(size_t bufferSize) : size(bufferSize)
+  {
+    cudaMemPoolProps poolProps{};
+    poolProps.allocType     = cudaMemAllocationTypePinned;
+    poolProps.location.type = cudaMemLocationTypeDevice;
+    poolProps.location.id   = 0;
+    CUDA_EXIT_ON_ERROR(cudaMemPoolCreate(&pool, &poolProps), "CUDA memory pool creation");
+    CUDA_EXIT_ON_ERROR(cudaStreamCreate(&stream), "CUDA stream creation");
+    CUDA_EXIT_ON_ERROR(cudaMallocFromPoolAsync(&ptr, size, pool, stream),
+                       "CUDA pool async memory allocation");
+  }
+
+  ~CudaAsyncPoolBuffer()
+  {
+    if (ptr) {
+      CUDA_EXIT_ON_ERROR(cudaFreeAsync(ptr, stream), "CUDA pool async memory deallocation");
+    }
+    if (stream) { CUDA_EXIT_ON_ERROR(cudaStreamDestroy(stream), "CUDA stream destruction"); }
+    if (pool) { CUDA_EXIT_ON_ERROR(cudaMemPoolDestroy(pool), "CUDA memory pool destruction"); }
+  }
+
+  CudaAsyncPoolBuffer(const CudaAsyncPoolBuffer&)            = delete;
+  CudaAsyncPoolBuffer& operator=(const CudaAsyncPoolBuffer&) = delete;
+  CudaAsyncPoolBuffer(CudaAsyncPoolBuffer&& other) noexcept
+    : ptr(other.ptr), size(other.size), stream(other.stream), pool(other.pool)
+  {
+    other.ptr    = nullptr;
+    other.size   = 0;
+    other.stream = nullptr;
+    other.pool   = nullptr;
+  }
+  CudaAsyncPoolBuffer& operator=(CudaAsyncPoolBuffer&& other) noexcept
+  {
+    if (this != &other) {
+      if (ptr)
+        CUDA_EXIT_ON_ERROR(cudaFreeAsync(ptr, stream), "CUDA pool async memory deallocation");
+      if (stream) CUDA_EXIT_ON_ERROR(cudaStreamDestroy(stream), "CUDA stream destruction");
+      if (pool) CUDA_EXIT_ON_ERROR(cudaMemPoolDestroy(pool), "CUDA memory pool destruction");
+      ptr          = other.ptr;
+      size         = other.size;
+      stream       = other.stream;
+      pool         = other.pool;
+      other.ptr    = nullptr;
+      other.size   = 0;
+      other.stream = nullptr;
+      other.pool   = nullptr;
+    }
+    return *this;
+  }
+};
+
 typedef std::unordered_map<DirectionType, CudaBuffer> CudaBufferMap;
 typedef std::unordered_map<DirectionType, CudaManagedBuffer> CudaManagedBufferMap;
 typedef std::unordered_map<DirectionType, CudaAsyncBuffer> CudaAsyncBufferMap;
+typedef std::unordered_map<DirectionType, CudaAsyncPoolBuffer> CudaAsyncPoolBufferMap;
 typedef std::shared_ptr<CudaBufferMap> CudaBufferMapPtr;
 typedef std::shared_ptr<CudaManagedBufferMap> CudaManagedBufferMapPtr;
 typedef std::shared_ptr<CudaAsyncBufferMap> CudaAsyncBufferMapPtr;
+typedef std::shared_ptr<CudaAsyncPoolBufferMap> CudaAsyncPoolBufferMapPtr;
 #endif
 
 typedef std::unordered_map<DirectionType, ucxx::Tag> TagMap;
@@ -484,7 +551,8 @@ struct CudaBufferInterface : public CudaBufferInterfaceBase {
   {
     if (direction == DirectionType::Send) {
       std::vector<char> pattern(messageSize, 0xaa);
-      if constexpr (std::is_same_v<BufferType, CudaAsyncBuffer>) {
+      if constexpr (std::is_same_v<BufferType, CudaAsyncBuffer> ||
+                    std::is_same_v<BufferType, CudaAsyncPoolBuffer>) {
         CUDA_EXIT_ON_ERROR(cudaMemcpyAsync((*bufferMap)[DirectionType::Send].ptr,
                                            pattern.data(),
                                            messageSize,
@@ -517,7 +585,8 @@ struct CudaBufferInterface : public CudaBufferInterfaceBase {
     std::vector<char> sendData(messageSize);
     std::vector<char> recvData(messageSize);
 
-    if constexpr (std::is_same_v<BufferType, CudaAsyncBuffer>) {
+    if constexpr (std::is_same_v<BufferType, CudaAsyncBuffer> ||
+                  std::is_same_v<BufferType, CudaAsyncPoolBuffer>) {
       // For async buffers, use the stream from the buffer
       CUDA_EXIT_ON_ERROR(
         cudaMemcpyAsync(sendData.data(), (*bufferMap)[DirectionType::Send].ptr, messageSize, cudaMemcpyDeviceToHost,
@@ -589,7 +658,8 @@ BufferMapPtr allocateTransferBuffers(size_t messageSize)
 // Type aliases for convenience
 using CudaDeviceBufferInterface  = CudaBufferInterface<CudaBuffer>;
 using CudaManagedBufferInterface = CudaBufferInterface<CudaManagedBuffer>;
-using CudaAsyncBufferInterface   = CudaBufferInterface<CudaAsyncBuffer>;
+using CudaAsyncBufferInterface     = CudaBufferInterface<CudaAsyncBuffer>;
+using CudaAsyncPoolBufferInterface = CudaBufferInterface<CudaAsyncPoolBuffer>;
 
 // Template specialization implementations for allocation methods
 template <>
@@ -677,6 +747,32 @@ std::shared_ptr<CudaAsyncBufferMap> CudaBufferInterface<CudaAsyncBuffer>::alloca
   return bufferMap;
 }
 
+template <>
+/**
+ * @brief Allocates and initializes CUDA asynchronous buffers from explicit CUDA memory pools.
+ *
+ * Each buffer owns a CUDA memory pool and allocates from it with cudaMallocFromPoolAsync.
+ */
+std::shared_ptr<CudaAsyncPoolBufferMap> CudaBufferInterface<CudaAsyncPoolBuffer>::allocateBuffers(
+  size_t messageSize)
+{
+  auto bufferMap                    = std::make_shared<CudaAsyncPoolBufferMap>();
+  (*bufferMap)[DirectionType::Send] = CudaAsyncPoolBuffer(messageSize);
+  (*bufferMap)[DirectionType::Recv] = CudaAsyncPoolBuffer(messageSize);
+
+  std::vector<char> pattern(messageSize, 0xaa);
+  CUDA_EXIT_ON_ERROR(cudaMemcpyAsync((*bufferMap)[DirectionType::Send].ptr,
+                                     pattern.data(),
+                                     messageSize,
+                                     cudaMemcpyHostToDevice,
+                                     (*bufferMap)[DirectionType::Send].stream),
+                     "CUDA pool async send buffer initialization");
+  CUDA_EXIT_ON_ERROR(cudaStreamSynchronize((*bufferMap)[DirectionType::Send].stream),
+                     "CUDA stream synchronization");
+
+  return bufferMap;
+}
+
 // Factory method implementation
 std::unique_ptr<CudaBufferInterfaceBase> CudaBufferInterfaceBase::createBufferInterface(
   MemoryType memoryType, size_t messageSize, bool reuseAlloc)
@@ -716,6 +812,10 @@ std::unique_ptr<CudaBufferInterfaceBase> CudaBufferInterfaceBase::allocateBuffer
     case MemoryType::CudaAsync: {
       auto bufferMap = CudaAsyncBufferInterface::allocateBuffers(messageSize);
       return std::make_unique<CudaAsyncBufferInterface>(bufferMap);
+    }
+    case MemoryType::CudaAsyncPool: {
+      auto bufferMap = CudaAsyncPoolBufferInterface::allocateBuffers(messageSize);
+      return std::make_unique<CudaAsyncPoolBufferInterface>(bufferMap);
     }
     default: throw std::runtime_error("Unsupported CUDA memory type");
   }

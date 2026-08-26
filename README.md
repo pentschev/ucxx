@@ -105,6 +105,12 @@ $ UCX_TCP_CM_REUSEADDR=y ./benchmarks/ucxx_perftest -m cuda-async -s 1048576 -n 
 
 # Client with CUDA async memory
 $ ./benchmarks/ucxx_perftest -m cuda-async -s 1048576 -n 10 127.0.0.1
+
+# Server with CUDA async memory from a dedicated pool
+$ UCX_TCP_CM_REUSEADDR=y ./benchmarks/ucxx_perftest -m cuda-async-pool -s 1048576 -n 10 &
+
+# Client with CUDA async memory from a dedicated pool
+$ ./benchmarks/ucxx_perftest -m cuda-async-pool -s 1048576 -n 10 127.0.0.1
 ```
 
 **Available Memory Types:**
@@ -112,6 +118,7 @@ $ ./benchmarks/ucxx_perftest -m cuda-async -s 1048576 -n 10 127.0.0.1
 - `cuda` - CUDA device memory allocation
 - `cuda-managed` - CUDA unified/managed memory allocation
 - `cuda-async` - CUDA device memory with asynchronous operations
+- `cuda-async-pool` - CUDA device memory allocated with `cudaMallocFromPoolAsync`
 
 **Requirements for CUDA Support:**
 - UCXX compiled with `UCXX_BENCHMARKS_ENABLE_CUDA=ON` (if building benchmarks)
